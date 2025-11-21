@@ -5,7 +5,6 @@ import multiprocessing
 import socket
 import sys
 import time
-import uuid
 from pathlib import Path
 
 from helper.parser.sip_parsers import SipMessageParser
@@ -13,7 +12,7 @@ from helper.sip_session import SIPRTPSession
 from model.sip_message import SDPMessage, SIPMessage
 
 
-class RelayServer:
+class SIPServer:
     def __init__(
         self,
         host: str = "192.168.1.101",
@@ -41,8 +40,19 @@ class RelayServer:
         # message parser
         self.sip_message_parser = SipMessageParser()
 
+        # shared boolean flag
+        self.is_running = multiprocessing.Value("b", False)
+        self.listening_incoming_call = multiprocessing.Value("b", False)
+
         # RTP
         self.sessions: dict[str, SIPRTPSession] = {}
+
+    def setup_sip_listener(self) -> socket.socket:
+        """Create and bind the UDP socket."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((self.host, self.recv_port))
+        self.logger.info(f"Listening for SIP messages on {self.host}:{self.recv_port}")
+        return sock
 
     def sip_listener_loop(self, host: str, port: int) -> None:
         logging.basicConfig(
@@ -134,6 +144,9 @@ class RelayServer:
             case "CANCEL":
                 self._handle_cancel(parsed_message, call_id, addr, socket)
                 self.logger.info("CANCEL")
+
+            case "RTP":
+                self.logger.info("RTP")
 
             case _:
                 self.logger.warning(
@@ -325,103 +338,6 @@ class RelayServer:
         response = self._build_response(msg, "200 OK")
         self._send_response(addr, response, socket)
 
-    def _handle_call(
-        self,
-        target_uri: str,
-        target_addr: tuple[str, int],
-        socket: socket.socket,
-    ) -> str | None:
-        """
-        Initiate outgoing call to a SIP endpoint.
-
-        Flow:
-        1. Generate unique Call-ID
-        2. Create RTP session
-        3. Generate SDP offer
-        4. Build and send INVITE request
-        5. Wait for response (200 OK)
-        6. Send ACK to complete handshake
-
-        Args:
-            target_uri: SIP URI of callee (e.g., "sip:user@192.168.1.100:5060")
-            target_addr: Tuple of (ip, port) for the target SIP server
-            socket: Socket to use for sending the INVITE
-
-        Returns:
-            call_id if successful, None otherwise
-        """
-
-        self.logger.info(f"> Initiating call to {target_uri}")
-
-        try:
-            # Generate unique Call-ID
-            call_id = str(uuid.uuid4())
-
-            # Create RTP session
-            session = SIPRTPSession(local_ip=self.local_ip)
-            sdp_offer = session.create_sdp_offer()
-
-            # Store session
-            self.sessions[call_id] = session
-
-            self.logger.info(f"> Created RTP session for outgoing call {call_id}")
-            self.logger.info(
-                f"   Local RTP ports: send={session.local_send_port}, recv={session.local_recv_port}"
-            )
-
-            # Build INVITE request
-            invite_request = self._build_invite_request(target_uri, call_id, sdp_offer)
-
-            # Send INVITE
-            self._send_response(target_addr, invite_request, socket)
-            self.logger.info(f"> Sent INVITE to {target_addr}")
-
-            # Return call_id for tracking
-            # Note: Caller needs to handle 200 OK and ACK separately
-            return call_id
-
-        except Exception as e:
-            self.logger.exception(f"Failed to initiate call: {e}")
-
-            return None
-
-    def _build_invite_request(
-        self, target_uri: str, call_id: str, sdp_offer: SDPMessage
-    ) -> str:
-        """
-        Build a SIP INVITE request for outgoing calls.
-
-        Args:
-            target_uri: SIP URI of the callee (e.g., "sip:user@192.168.1.100:5060")
-            call_id: Unique call identifier
-            sdp_offer: SDP offer from RTPSession
-
-        Returns:
-            Complete SIP INVITE request as string
-        """
-        # Serialize SDP to string
-        sdp_body = self._serialize_sdp(sdp_offer)
-
-        # Generate tags for From and To headers
-        from_tag = str(uuid.uuid4())[:8]
-
-        # Build INVITE request
-        lines = [
-            f"INVITE {target_uri} SIP/2.0",
-            f"Via: SIP/2.0/UDP {self.local_ip}:{self.recv_port};branch=z9hG4bK{uuid.uuid4().hex[:8]}",
-            "Max-Forwards: 70",
-            f"From: <sip:{self.local_ip}:{self.recv_port}>;tag={from_tag}",
-            f"To: <{target_uri}>",
-            f"Call-ID: {call_id}",
-            "CSeq: 1 INVITE",
-            f"Contact: <sip:{self.local_ip}:{self.recv_port}>",
-            "Content-Type: application/sdp",
-            f"Content-Length: {len(sdp_body)}",
-            "",
-            sdp_body,
-        ]
-        return "\r\n".join(lines)
-
     def _build_response(self, request: SIPMessage, status: str) -> str:
         """
         Build a simple SIP response.
@@ -531,7 +447,7 @@ class RelayServer:
 
 
 if __name__ == "__main__":
-    server = RelayServer()
+    server = SIPServer()
     server_process = server.start()
 
     print(server_process)

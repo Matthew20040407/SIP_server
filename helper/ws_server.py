@@ -2,54 +2,44 @@
 import asyncio
 import logging
 
-import websockets  # pyright: ignore[reportMissingImports]
+from websockets.asyncio.server import serve
 
 
 class WebSocketServer:
-    def __init__(self, host: str = "192.168.1.101", port: int = 8080) -> None:
+    def __init__(self, host: str = "0.0.0.0", port: int = 8080) -> None:
         self.logger = logging.getLogger("WebSocketServer")
-
         self.host = host
         self.port = port
         self.uri = f"ws://{host}:{port}"
-        self._server: websockets.server.Serve = None
-        self._clients: set[websockets.WebSocketServerProtocol] = set()
-        self._loop = asyncio.get_event_loop()
 
-    async def _handler(self, ws: websockets.WebSocketServerProtocol):
-        self._clients.add(ws)
-        try:
-            async for message in ws:
-                await self.handle_message_recv(message)
-        finally:
-            self._clients.discard(ws)
+    async def recv_loop(self, websocket):
+        async for message in websocket:
+            ...
+
+    async def send_loop(self, websocket):
+        while True:
+            await asyncio.sleep(1)
+            await websocket.send("server ping")
+
+    async def handler(self, websocket):
+        recv_task = asyncio.create_task(self.recv_loop(websocket))
+        send_task = asyncio.create_task(self.send_loop(websocket))
+
+        done, pending = await asyncio.wait(
+            {recv_task, send_task},
+            return_when=asyncio.FIRST_EXCEPTION,
+        )
+
+        for task in pending:
+            task.cancel()
+
+    async def _run(self):
+        async with serve(self.handler, self.host, self.port):
+            await asyncio.Future()
 
     def start(self) -> None:
-        self._server = websockets.serve(self._handler, self.host, self.port)
-        self._loop.run_until_complete(self._server)
-        asyncio.ensure_future(self._server)
-
-    def stop(self) -> None:
-        if self._server is None:
-            return
-        for ws in list(self._clients):
-            self._loop.create_task(ws.close())
-        self._server.ws_server.close()
-
-    async def handle_message_send(self, message: str) -> None:
-        dead = []
-        for client in self._clients:
-            try:
-                await client.send(message)
-            except Exception as e:
-                self.logger.error(e)
-                dead.append(client)
-        for d in dead:
-            self._clients.discard(d)
-
-    async def handle_message_recv(self, message: str) -> str:
-        self.logger.info(f"[RECV] {message}")
-        return message
+        asyncio.run(self._run())
 
 
-ws = WebSocketServer()
+if __name__ == "__main__":
+    WebSocketServer().start()

@@ -9,3 +9,6 @@ wheels/
 # Virtual environments
 .venv
 **.wav
+.vscode/settings.json
+**test**
+**.log

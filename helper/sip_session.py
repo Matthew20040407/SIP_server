@@ -1,14 +1,13 @@
 # Code by DHT@Matthew
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from secrets import randbits
-
-import websockets
+from typing import Callable
 
 from helper.rtp_handler import RTPHandler
+from model.rtp import RTPPacket
 from model.sip_message import MediaDescription, SDPMessage, TimeDescription
 
 
@@ -254,7 +253,7 @@ class SDPBuilder:
         )
 
 
-class SIPSession:
+class SIPRTPSession:
     """
     Complete SIP + RTP session handler.
     Integrates with your existing Pydantic SDPMessage models.
@@ -289,76 +288,22 @@ class SIPSession:
         self.local_send_port: int | None = None
         self.local_recv_port: int | None = None
 
+        # Statistics callback
+        self.stats = {"packets_received": 0, "packets_sent": 0, "bytes_received": 0}
+
         self.rtp_port_allocator = RTPPortAllocator()
-
-    def create_sdp_offer(
-        self,
-        payload_type: int = 0,
-        codec: str = "PCMA",
-        sample_rate: int = 8000,
-    ) -> SDPMessage:
-        """
-        Create SDP offer for outgoing calls.
-
-        Args:
-            payload_type: RTP payload type (default: 0 for PCMU)
-            codec: Codec name (default: "PCMU")
-            sample_rate: Sample rate in Hz (default: 8000)
-
-        Returns:
-            SDPMessage offer to include in INVITE
-
-        Example:
-            >>> session = SIPRTPSession(local_ip="192.168.1.101")
-            >>> sdp_offer = session.create_sdp_offer()
-            >>> # Include sdp_offer in INVITE request
-        """
-        # Allocate local RTP ports
-        self.local_send_port, self.local_recv_port = (
-            self.rtp_port_allocator.allocate_pair()
-        )
-
-        self.logger.info("> Creating SDP offer for outgoing call")
-        self.logger.info(f"   Send: {self.local_send_port}")
-        self.logger.info(f"   Recv: {self.local_recv_port}")
-
-        # Generate session ID
-        import random
-
-        session_id = random.randint(1000000, 9999999)
-
-        # Build origin line
-        origin = f"- {session_id} {session_id} IN IP4 {self.local_ip}"
-
-        # Build media description
-        media_desc = MediaDescription(
-            m=f"audio {self.local_recv_port} RTP/AVP {payload_type}",
-            a=[f"rtpmap:{payload_type} {codec}/{sample_rate}"],
-        )
-
-        # Build complete SDP offer
-        sdp_offer = SDPMessage(
-            v=0,
-            o=origin,
-            s="-",
-            c=f"IN IP4 {self.local_ip}",
-            t=[TimeDescription(t="0 0")],
-            m=[media_desc],
-        )
-
-        self.logger.info("> SDP offer created")
-
-        return sdp_offer
 
     def handle_invite(
         self,
         sdp_offer: SDPMessage,
+        packet_callback: Callable[[RTPPacket], None] | None = None,
     ) -> SDPMessage:
         """
         Process SIP INVITE with SDP offer, setup RTP, return SDP answer.
 
         Args:
             sdp_offer: Parsed SDP from INVITE (your Pydantic model)
+            packet_callback: Optional callback for received RTP packets
 
         Returns:
             SDPMessage answer (serialize this into 200 OK body)
@@ -396,7 +341,23 @@ class SIPSession:
             ssrc=randbits(32),
         )
 
-        # Step 4: Build SDP answer
+        # Step 4: Start receiving (with stats tracking)
+        def stats_callback(pkt: RTPPacket):
+            self.stats["packets_received"] += 1
+            self.stats["bytes_received"] += len(pkt.payload)
+            # Log every second (50 packets at 20ms)
+            if self.stats["packets_received"] % 50 == 0:
+                self.logger.info(
+                    f"> Received RTP {self.stats['packets_received']} packets ({self.stats['bytes_received']} bytes)"
+                )
+
+            # User callback
+            if packet_callback:
+                packet_callback(pkt)
+
+        # self.rtp_handle.start_receiving(stats_callback)
+
+        # Step 5: Build SDP answer
         sdp_answer = SDPBuilder.build_answer(
             local_ip=self.local_ip,
             local_recv_port=self.local_recv_port,
@@ -406,11 +367,6 @@ class SIPSession:
         self.logger.info("> RTP session ready")
 
         return sdp_answer
-
-
-class SIPRTPSession(SIPSession):
-    def __init__(self, local_ip: str):
-        super().__init__(local_ip)
 
     def start_audio(self, mode: str = "wav", wav_path: Path | None = None):
         """
@@ -428,7 +384,7 @@ class SIPRTPSession(SIPSession):
         if not self.rtp_handle:
             raise RuntimeError("Call handle_invite() first")
 
-        self.logger.info(f"[Mode] {mode}")
+        self.logger.info(f"> Starting audio: {mode}")
         self.logger.info(f"Send from {self.local_send_port}")
         self.logger.info(f"Listening {self.local_recv_port}")
 
@@ -440,11 +396,15 @@ class SIPRTPSession(SIPSession):
             if not wav_path.exists():
                 raise ValueError(f"WAV file not found: {wav_path}")
 
-            wav_packet = self.rtp_handle.wav2bytes(wav_path)
-            self.rtp_handle.put_send_queue(wav_packet)
+            self.rtp_handle.start_sending_wav(wav_path)
             self.logger.info(f"\tFile: {wav_path}")
+
+        elif mode == "dummy":
+            ...
+            # dummy mode for keeping connection
+            # self.rtp_handle.start_sending_dummy()
         else:
-            raise ValueError(f"Unknown mode: {mode}")
+            raise ValueError(f"Unknown mode: {mode}. Use 'dummy' or 'wav'")
 
     def stop_and_save(self, output_path: Path | None = None):
         """
@@ -470,39 +430,6 @@ class SIPRTPSession(SIPSession):
 
         self.logger.info("> Session ended")
 
-
-class SIPWSSession(SIPSession):
-    def __init__(self, local_ip: str):
-        super().__init__(local_ip)
-
-    def start_communication(
-        self,
-        host: str = "192.168.1.101",
-        port: int = 8080,
-    ) -> None:
-        if not self.rtp_handle:
-            raise RuntimeError("Call handle_invite() first")
-
-        uri = f"ws://{host}:{port}"
-        self.logger.info("[Mode] WS communication")
-        self.logger.info(f"Send from {self.local_send_port}")
-        self.logger.info(f"Listening {self.local_recv_port}")
-        self.logger.info(f"[WS] {uri=}")
-
-        asyncio.get_event_loop().run_until_complete(
-            websockets.serve(self.echo, "localhost", port)
-        )
-
-        asyncio.get_event_loop().run_forever()
-
-    async def hello(self, uri):
-        async with websockets.connect(uri) as websocket:
-            await websocket.send("Jimmy")
-            await websocket.recv()
-
-    async def echo(self, websocket, path):
-        async for message in websocket:
-            print(message, "received from client")
-            greeting = f"Hello {message}!"
-            await websocket.send(greeting)
-            print(f"> {greeting}")
+    def get_stats(self) -> dict:
+        """Get current session statistics"""
+        return self.stats.copy()
