@@ -20,6 +20,12 @@ class WebSocketCommand(BaseModel):
     type: CommandType
     content: str | bytes | None = None
 
+    def __str__(self) -> str:
+        if self.content:
+            return f"{self.type}:{self.content}"
+        else:
+            return self.type
+
 
 # class CallCommand(BasicWebSocketCommand):
 #     type: CommandType = CommandType.CALL

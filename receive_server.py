@@ -12,7 +12,7 @@ from helper.sip_session import SIPRTPSession
 from model.sip_message import SDPMessage, SIPMessage
 
 
-class SIPServer:
+class RelayServer:
     def __init__(
         self,
         host: str = "192.168.1.101",
@@ -375,7 +375,7 @@ class SIPServer:
         """
         # Serialize SDP to string
         sdp_body = self._serialize_sdp(sdp_answer)
-        self.logger.info(f"[SDP ANSWER]\n{sdp_body}")
+        self.logger.debug(f"[SDP ANSWER]\n{sdp_body}")
 
         lines = [
             "SIP/2.0 200 OK",
@@ -447,7 +447,7 @@ class SIPServer:
 
 
 if __name__ == "__main__":
-    server = SIPServer()
+    server = RelayServer()
     server_process = server.start()
 
     print(server_process)

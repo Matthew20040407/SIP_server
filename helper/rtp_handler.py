@@ -79,9 +79,6 @@ class RTPSender:
                     ssrc=self.ssrc,
                     payload=payload,
                 )
-                self.logger.debug(
-                    f"[RTP] Sending {len(payload)} byte to {self.remote_addr}"
-                )
                 self.sock.sendto(packet.pack(), self.remote_addr)
 
                 if self.sequence % 50 == 0 and logging.root.level != logging.DEBUG:

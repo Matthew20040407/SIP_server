@@ -84,8 +84,8 @@ class WSCommandHelper:
 
     def builder(
         self,
-        message: bytes | None,
         message_type: CommandType,
+        message: bytes | str | None = None,
     ) -> WebSocketCommand:
         return WebSocketCommand(type=message_type, content=message)
 

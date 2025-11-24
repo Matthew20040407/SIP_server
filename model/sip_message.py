@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 
-from pydantic import (  # pyright: ignore[reportMissingImports]
+from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
