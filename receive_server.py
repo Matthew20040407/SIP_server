@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-from helper.parser.sip_parsers import SipMessageParser
+from helper.sip_parsers import SipMessageParser
 from helper.sip_session import SIPRTPSession
 from model.sip_message import SDPMessage, SIPMessage
 
