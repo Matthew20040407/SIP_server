@@ -9,6 +9,8 @@ from pathlib import Path
 
 from helper.sip_parsers import SipMessageParser
 from helper.sip_session import SIPRTPSession
+from helper.ws_command import WSCommandHelper
+from helper.ws_helper import ws_server
 from model.sip_message import SDPMessage, SIPMessage
 
 
@@ -47,6 +49,9 @@ class RelayServer:
         # RTP
         self.sessions: dict[str, SIPRTPSession] = {}
 
+        # ws command
+        self.ws_command_helper = WSCommandHelper()
+
     def setup_sip_listener(self) -> socket.socket:
         """Create and bind the UDP socket."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -66,8 +71,21 @@ class RelayServer:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         logger.info(f"Listening for SIP messages on {host}:{port}")
         sock.bind((host, port))
+        sock.setblocking(False)
 
         while True:
+            try:
+                ws_message = ws_server.get_message()
+                if ws_message is None:
+                    pass
+                else:
+                    logger.info(ws_message.type)
+
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                logger.error(f"Error: {e}")
+
             try:
                 data, addr = sock.recvfrom(4096)
                 msg = data.decode(errors="ignore")
@@ -75,6 +93,10 @@ class RelayServer:
                 self.message_handler(msg, addr, sock)
             except KeyboardInterrupt:
                 break
+            except socket.error as e:
+                if e.errno == 11:
+                    continue
+                logger.error(f"Error: {e}")
             except Exception as e:
                 logger.error(f"Error: {e}")
 
@@ -130,23 +152,20 @@ class RelayServer:
         # Route by method
         match parsed_message.request_line.method:
             case "INVITE":
-                self._handle_invite(parsed_message, call_id, addr, socket)
                 self.logger.info("INVITE")
+                self._handle_invite(parsed_message, call_id, addr, socket)
 
             case "ACK":
-                self._handle_ack(parsed_message, call_id, addr)
                 self.logger.info("ACK")
+                self._handle_ack(parsed_message, call_id, addr)
 
             case "BYE":
+                self.logger.info("BYE")
                 self._handle_bye(parsed_message, call_id, addr, socket)
-                self.logger.info("ACK")
 
             case "CANCEL":
-                self._handle_cancel(parsed_message, call_id, addr, socket)
                 self.logger.info("CANCEL")
-
-            case "RTP":
-                self.logger.info("RTP")
+                self._handle_cancel(parsed_message, call_id, addr, socket)
 
             case _:
                 self.logger.warning(
@@ -155,6 +174,10 @@ class RelayServer:
                 # Send 501 Not Implemented
                 response = self._build_response(parsed_message, "501 Not Implemented")
                 self._send_response(addr, response, socket)
+
+    def ws_message_handler(
+        self, message: str, addr: tuple[str, int], socket: socket.socket
+    ) -> None: ...
 
     def _handle_invite(
         self,

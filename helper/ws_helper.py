@@ -97,7 +97,7 @@ class WebsocketServer:
     def get_status(self) -> None: ...
 
 
-ws_server = WebsocketServer("0.0.0.0", 8080)
+ws_server = WebsocketServer("192.168.1.101", 8080)
 ws_server.start_ws()
 
 if __name__ == "__main__":
