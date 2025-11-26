@@ -1,10 +1,8 @@
-# Code by DHT@Matthew
-
 import logging
 import queue
 import threading
 
-from websockets.sync.server import ServerConnection, serve
+from websockets.sync.server import Server, ServerConnection, serve
 
 from helper.ws_command import WSCommandHelper
 from model.ws_command import WebSocketCommand
@@ -16,10 +14,10 @@ class WebsocketServer:
         self.host = host
         self.port = port
 
-        self.send_queue: queue.Queue[WebSocketCommand] = queue.Queue()
-        self.recv_queue: queue.Queue[WebSocketCommand] = queue.Queue()
+        self._send_queue: queue.Queue[WebSocketCommand] = queue.Queue()
+        self._recv_queue: queue.Queue[WebSocketCommand] = queue.Queue()
 
-        self.ws_server = None
+        self.ws_server: Server | None = None
         self.running = False
 
         self.command_helper = WSCommandHelper()
@@ -29,19 +27,24 @@ class WebsocketServer:
         self.status: dict[str, int] = {"send": 0, "recv": 0}
 
     def recv_loop(self, websocket: ServerConnection) -> None:
+        self.logger.info("recv_loop STARTED")
         try:
             for message in websocket:
-                self.logger.info(f"Received: {message}")
+                self.logger.info(f"Received RAW: {repr(message)}")
+
                 command = self.parser(message=str(message))
-                self.recv_queue.put(command, timeout=0.1)
+                self._recv_queue.put(command)
+                self.logger.info(self._recv_queue.qsize())
                 self.status["recv"] += 1
         except Exception as e:
-            self.logger.error(f"recv_loop error: {e}")
+            self.logger.error(f"recv_loop CRASHED: {e}", exc_info=True)
+        finally:
+            self.logger.info("recv_loop ENDED")
 
     def send_loop(self, websocket: ServerConnection) -> None:
         while self.running:
             try:
-                message = self.send_queue.get(timeout=1.0)
+                message = self._send_queue.get(timeout=1.0)
                 websocket.send(str(message))
                 self.logger.info(f"Sent: {message}")
                 self.status["send"] += 1
@@ -50,6 +53,18 @@ class WebsocketServer:
             except Exception as e:
                 self.logger.error(f"send_loop error: {e}")
                 break
+
+    def send_message(self, message: WebSocketCommand) -> None:
+        self._send_queue.put(message)
+
+    def get_message(self) -> WebSocketCommand | None:
+        qsize = self._recv_queue.qsize()
+        self.logger.info(f"get_message() called on {id(self)}, queue size: {qsize}")
+
+        try:
+            return self._recv_queue.get(block=False)
+        except queue.Empty:
+            return None
 
     def handler(self, websocket: ServerConnection) -> None:
         self.running = True
@@ -86,28 +101,9 @@ class WebsocketServer:
         self.ws_server.shutdown()
         self.logger.info("[WebSocket] server stopped")
 
-    def send_message(self, message: WebSocketCommand) -> None:
-        self.send_queue.put(message)
-
-    def get_message(self) -> WebSocketCommand | None:
-        if self.recv_queue.empty():
-            return
-        return self.recv_queue.get(timeout=0.1)
-
-    def get_status(self) -> None: ...
-
 
 ws_server = WebsocketServer("192.168.1.101", 8080)
 ws_server.start_ws()
 
 if __name__ == "__main__":
     ...
-    # server.send_message("Hello from server")
-
-    # try:
-    #     msg = server.get_message()
-    #     print(f"Got message: {msg}")
-    # except queue.Empty:
-    #     print("No message received")
-
-    # server.stop_ws()

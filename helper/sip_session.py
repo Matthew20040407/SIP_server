@@ -3,7 +3,7 @@
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from secrets import randbits
+from secrets import randbelow, randbits
 from typing import Callable
 
 from helper.rtp_handler import RTPHandler
@@ -227,9 +227,7 @@ class SDPBuilder:
                   RTPHandle.receiver is listening!
         """
         if session_id is None:
-            import random
-
-            session_id = random.randint(1000000, 9999999)
+            session_id = 1000000 + randbelow(8999999)
 
         # Build origin line: "- {sess_id} {sess_version} IN IP4 {ip}"
         origin = f"- {session_id} {session_id} IN IP4 {local_ip}"

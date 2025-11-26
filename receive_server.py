@@ -1,9 +1,7 @@
-# Code by DHT@Matthew
-
 import logging
-import multiprocessing
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -12,6 +10,7 @@ from helper.sip_session import SIPRTPSession
 from helper.ws_command import WSCommandHelper
 from helper.ws_helper import ws_server
 from model.sip_message import SDPMessage, SIPMessage
+from model.ws_command import CommandType, WebSocketCommand
 
 
 class RelayServer:
@@ -27,30 +26,23 @@ class RelayServer:
         self.transf_port = transf_port
         self.local_ip = local_ip
 
-        # logger
         self.logger = logging.getLogger("SIPServer")
         logging.basicConfig(
             level=logging.INFO,
-            # format="[%(levelname)s] - %(asctime)s - %(message)s - %(pathname)s:%(lineno)d",
-            format="[%(levelname)s] - %(asctime)s - %(message)s - %(threadName)s",
+            format="[%(levelname)s] - %(asctime)s - %(message)s - %(pathname)s:%(lineno)d",
             filemode="w+",
             filename="sip_server.log",
             datefmt="%y-%m-%d %H:%M:%S",
         )
         console_handler = logging.StreamHandler(sys.stdout)
         self.logger.addHandler(console_handler)
-        # message parser
+
         self.sip_message_parser = SipMessageParser()
 
-        # shared boolean flag
-        self.is_running = multiprocessing.Value("b", False)
-        self.listening_incoming_call = multiprocessing.Value("b", False)
-
-        # RTP
         self.sessions: dict[str, SIPRTPSession] = {}
 
-        # ws command
         self.ws_command_helper = WSCommandHelper()
+        self._stop_flag = threading.Event()
 
     def setup_sip_listener(self) -> socket.socket:
         """Create and bind the UDP socket."""
@@ -60,12 +52,6 @@ class RelayServer:
         return sock
 
     def sip_listener_loop(self, host: str, port: int) -> None:
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format="[%(levelname)s] %(asctime)s - %(processName)s:%(threadName)s - %(message)s",
-            filemode="a+",
-            filename="sip_server_child.log",
-        )
         logger = logging.getLogger("SIPListener")
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -73,13 +59,14 @@ class RelayServer:
         sock.bind((host, port))
         sock.setblocking(False)
 
-        while True:
+        while not self._stop_flag.is_set():
             try:
                 ws_message = ws_server.get_message()
-                if ws_message is None:
-                    pass
-                else:
-                    logger.info(ws_message.type)
+                self.logger.info(ws_message)
+                time.sleep(1)
+                if ws_message:
+                    self.logger.info(ws_message.type)
+                    self.ws_message_handler(ws_message)
 
             except KeyboardInterrupt:
                 break
@@ -102,24 +89,21 @@ class RelayServer:
 
         sock.close()
 
-    def start(self) -> multiprocessing.Process:
-        """Spawn the listener in a new process."""
-        listener_proc = multiprocessing.Process(
-            target=self.sip_listener_loop, args=(self.host, self.recv_port)
+    def start(self) -> threading.Thread:
+        listener_thread = threading.Thread(
+            target=self.sip_listener_loop, args=(self.host, self.recv_port), daemon=True
         )
-        # kills automatically when parent exits
-        listener_proc.daemon = True
-        self.logger.info("Starting")
-        listener_proc.start()
+        listener_thread.start()
+        return listener_thread
 
-        self.logger.info(f"SIP listener started on PID {listener_proc.pid}")
-        return listener_proc
-
-    def stop(self, proc: multiprocessing.Process) -> None:
-        """Terminate the listener process."""
-        proc.terminate()
-        proc.join()
-        self.logger.info("SIP listener stopped.")
+    def stop(self, proc: threading.Thread) -> None:
+        """Terminate the listener thread."""
+        self._stop_flag.set()
+        proc.join(timeout=5.0)
+        if proc.is_alive():
+            self.logger.warning("Thread did not stop gracefully within timeout")
+        else:
+            self.logger.info("SIP listener stopped.")
 
     def message_handler(
         self, message: str, addr: tuple[str, int], socket: socket.socket
@@ -142,14 +126,12 @@ class RelayServer:
             self._send_response(addr, "SIP/2.0 400 Bad Request\r\n\r\n", socket)
             return
 
-        # Extract Call-ID (unique identifier for this call)
         call_id = parsed_message.headers.get("Call-ID")
         if not call_id:
             self.logger.error("No Call-ID in message")
             self._send_response(addr, "SIP/2.0 400 Bad Request\r\n\r\n", socket)
             return
 
-        # Route by method
         match parsed_message.request_line.method:
             case "INVITE":
                 self.logger.info("INVITE")
@@ -171,13 +153,28 @@ class RelayServer:
                 self.logger.warning(
                     f"Unhandled method: {parsed_message.request_line.method}"
                 )
-                # Send 501 Not Implemented
+
                 response = self._build_response(parsed_message, "501 Not Implemented")
                 self._send_response(addr, response, socket)
 
-    def ws_message_handler(
-        self, message: str, addr: tuple[str, int], socket: socket.socket
-    ) -> None: ...
+    def ws_message_handler(self, ws_command: WebSocketCommand) -> None:
+        self.logger.info(f"Processing message from WS: {ws_command.type}")
+        self.logger.debug(ws_command.content)
+
+        match ws_command.type:
+            case CommandType.CALL:
+                self.logger.info("[WS] incoming CAll")
+                phone_number = str(ws_command.content)
+                self._handle_call(phone_number=phone_number)
+
+            case CommandType.RTP:
+                self.logger.info("[WS] incoming RTP")
+
+            case CommandType.BYE:
+                self.logger.info("[WS] incoming BYE")
+
+            case _:
+                self.logger.error(f"Invalid command: {ws_command.type}")
 
     def _handle_invite(
         self,
@@ -198,15 +195,13 @@ class RelayServer:
         """
         self.logger.info(f"> INVITE from {addr} (call_id={call_id})")
 
-        # Check if session already exists
         if call_id in self.sessions:
             self.logger.warning(f"Call {call_id} already exists (re-INVITE?)")
-            # For simplicity, reject re-INVITE
+
             response = self._build_response(msg, "488 Not Acceptable Here")
             self._send_response(addr, response, socket)
             return
 
-        # Extract SDP from body
         if not msg.body:
             self.logger.error("INVITE has no SDP body")
             response = self._build_response(msg, "400 Bad Request")
@@ -214,17 +209,16 @@ class RelayServer:
             return
 
         try:
-            # Parse SDP (assumes msg.body is already SDPMessage or dict)
-
             sdp_offer = msg.body
             self.logger.debug(sdp_offer)
-            # Create RTP session
+
             session = SIPRTPSession(local_ip=self.local_ip)
 
-            # Handle INVITE, get SDP answer
-            sdp_answer = session.handle_invite(sdp_offer)  # type: ignore[reportArgumentType]
+            if isinstance(sdp_offer, str):
+                raise ValueError(f"{type(sdp_offer)=} prefer SDPMessage")
 
-            # Store session
+            sdp_answer = session.handle_invite(sdp_offer)
+
             self.sessions[call_id] = session
 
             self.logger.info(f"> RTP session created for call {call_id}")
@@ -232,7 +226,6 @@ class RelayServer:
                 f"   Local RTP ports: send={session.local_send_port}, recv={session.local_recv_port}"
             )
 
-            # Build 200 OK response
             response = self._build_ok_response(msg, sdp_answer)
             self._send_response(addr, response, socket)
 
@@ -263,22 +256,19 @@ class RelayServer:
         """
         self.logger.info(f"> ACK from {addr} (call_id={call_id})")
 
-        # Check if session exists
         session = self.sessions.get(call_id)
         if not session:
             self.logger.error(f"ACK for unknown call {call_id}")
             return
 
         try:
-            # Start sending audio
             audio_path = "./output/transcode/greeting.wav"
             wav_path = Path(audio_path)
             if wav_path.exists():
                 self.logger.info(f"Playing audio file: {audio_path}")
                 session.start_audio(mode="wav", wav_path=wav_path)
-                # session.start_audio(mode="dummy")
+
             else:
-                # session.start_audio(mode="dummy")
                 ...
             self.logger.info(f"> Started sending audio for call {call_id}")
 
@@ -303,30 +293,25 @@ class RelayServer:
         """
         self.logger.info(f"> BYE from {addr} (call_id={call_id})")
 
-        # Check if session exists
         session = self.sessions.get(call_id)
         if not session:
             self.logger.warning(f"BYE for unknown call {call_id}")
-            # Still send 200 OK (idempotent)
+
             response = self._build_response(msg, "200 OK")
             self._send_response(addr, response, socket)
             return
 
         try:
-            # Generate filename from call_id
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             filename = f"{timestamp}_{call_id[:8]}.wav"
-            output_path = Path("./recoding") / filename
+            output_path = Path("./recording") / filename
 
-            # Stop RTP and save
             session.stop_and_save(output_path)
 
             self.logger.info(f"> Saved recording to {output_path}")
 
-            # Remove session
             del self.sessions[call_id]
 
-            # Send 200 OK
             response = self._build_response(msg, "200 OK")
             self._send_response(addr, response, socket)
 
@@ -354,10 +339,9 @@ class RelayServer:
 
         session = self.sessions.get(call_id)
         if session:
-            session.stop_and_save()  # Don't save (no audio yet)
+            session.stop_and_save()
             del self.sessions[call_id]
 
-        # Send 200 OK
         response = self._build_response(msg, "200 OK")
         self._send_response(addr, response, socket)
 
@@ -396,7 +380,7 @@ class RelayServer:
         Returns:
             Complete SIP response with SDP
         """
-        # Serialize SDP to string
+
         sdp_body = self._serialize_sdp(sdp_answer)
         self.logger.debug(f"[SDP ANSWER]\n{sdp_body}")
 
@@ -404,7 +388,7 @@ class RelayServer:
             "SIP/2.0 200 OK",
             f"Via: {request.headers.get('Via')}",
             f"From: {request.headers.get('From')}",
-            f"To: {request.headers.get('To')}",  # Should add ;tag=xxx
+            f"To: {request.headers.get('To')}",
             f"Call-ID: {request.headers.get('Call-ID')}",
             f"CSeq: {request.headers.get('CSeq')}",
             f"Contact: <sip:{self.local_ip}:{self.recv_port}>",
@@ -427,7 +411,6 @@ class RelayServer:
         """
         lines = []
 
-        # Session-level fields
         lines.append(f"v={sdp.version}")
         lines.append(f"o={sdp.origin}")
         lines.append(f"s={sdp.session_name}")
@@ -435,11 +418,9 @@ class RelayServer:
         if sdp.connection_info:
             lines.append(f"c={sdp.connection_info}")
 
-        # Time descriptions
         for td in sdp.time_descriptions:
             lines.append(f"t={td.active_times}")
 
-        # Media descriptions
         if sdp.media_descriptions:
             for md in sdp.media_descriptions:
                 lines.append(f"m={md.media}")
@@ -465,8 +446,85 @@ class RelayServer:
         NOTE: This assumes you have a UDP socket.
         Replace with your actual transport layer.
         """
-        self.logger.debug(f"Sending response to {addr}:\n{response}")  # Debug
+        self.logger.debug(f"Sending response to {addr}:\n{response}")
         socket.sendto(response.encode("utf-8"), addr)
+
+    def _handle_call(self, phone_number: str) -> str | None:
+        """
+        Initiate outbound call to SIP server.
+
+        Args:
+            phone_number: Target phone number to dial
+
+        Returns:
+            call_id if INVITE sent successfully, None on failure
+        """
+        import uuid
+
+        call_id = str(uuid.uuid4())
+        branch = f"z9hG4bK{uuid.uuid4().hex[:16]}"
+        tag = uuid.uuid4().hex[:8]
+
+        session = SIPRTPSession(local_ip=self.local_ip)
+        local_rtp_port = session.local_recv_port
+
+        if local_rtp_port is None:
+            raise Exception(f"SIPRTPSession {local_rtp_port=}")
+        sdp_body = self._build_sdp_offer(local_rtp_port)
+
+        target_uri = f"sip:{phone_number}@{self.host}"
+        invite = "\r\n".join(
+            [
+                f"INVITE {target_uri} SIP/2.0",
+                f"Via: SIP/2.0/UDP {self.local_ip}:{self.recv_port};branch={branch}",
+                f"From: <sip:relay@{self.local_ip}>;tag={tag}",
+                f"To: <{target_uri}>",
+                f"Call-ID: {call_id}",
+                "CSeq: 1 INVITE",
+                f"Contact: <sip:relay@{self.local_ip}:{self.recv_port}>",
+                "Content-Type: application/sdp",
+                "Max-Forwards: 70",
+                f"Content-Length: {len(sdp_body)}",
+                "",
+                sdp_body,
+            ]
+        )
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.sendto(invite.encode("utf-8"), (self.host, self.transf_port))
+            sock.close()
+
+            self.sessions[call_id] = session
+            self.logger.info(f"INVITE sent to {phone_number} (call_id={call_id})")
+
+            return call_id
+
+        except Exception as e:
+            self.logger.exception(f"Failed to send INVITE: {e}")
+            return None
+
+    def _handle_rtp(self, rtp: bytes | str | None = None) -> None: ...
+
+    def _build_sdp_offer(self, rtp_port: int) -> str:
+        """Build minimal SDP offer for outbound call."""
+        import time
+
+        session_id = int(time.time())
+        lines = [
+            "v=0",
+            f"o=relay {session_id} {session_id} IN IP4 {self.local_ip}",
+            "s=Call",
+            f"c=IN IP4 {self.local_ip}",
+            "t=0 0",
+            f"m=audio {rtp_port} RTP/AVP 0 8 101",
+            "a=rtpmap:0 PCMU/8000",
+            "a=rtpmap:8 PCMA/8000",
+            "a=rtpmap:101 telephone-event/8000",
+            "a=fmtp:101 0-16",
+            "a=sendrecv",
+        ]
+        return "\r\n".join(lines) + "\r\n"
 
 
 if __name__ == "__main__":

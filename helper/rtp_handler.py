@@ -90,7 +90,7 @@ class RTPSender:
                 self.timestamp = (self.timestamp + 160) & 0xFFFFFFFF
 
                 # Sleep 20ms for real-time pacing
-                time.sleep(0.020)
+                time.sleep(0.007)
 
             except Exception as e:
                 self.logger.exception(
@@ -319,7 +319,7 @@ class RTPHandler:
         ssrc: int = 0x12345678,
     ) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(("0.0.0.0", local_port))
+        self.sock.bind(("192.168.1.101", local_port))
         self.sock.settimeout(1.0)
 
         self.sender = RTPSender(sock=self.sock, remote_addr=remote_recv_addr, ssrc=ssrc)
