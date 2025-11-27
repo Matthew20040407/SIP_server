@@ -626,7 +626,7 @@ class RelayServer:
             # Step 1: Allocate resources
             session = SIPRTPSession(local_ip=self.local_ip)
             send_port, recv_port = session.rtp_port_allocator.allocate_pair()
-            session.local_send_port = recv_port
+            session.local_send_port = send_port
             session.local_recv_port = recv_port
 
             self.logger.info(session.local_send_port)

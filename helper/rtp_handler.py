@@ -22,6 +22,7 @@ class RTPSender:
         remote_addr: tuple[str, int],
         ssrc: int,
         sock: socket.socket,
+        codec: PayloadType,
         local_port: int | None = None,
     ) -> None:
         self.logger = logging.getLogger("RTPSender")
@@ -38,6 +39,7 @@ class RTPSender:
         self.ssrc = ssrc
         self.sequence = 0
         self.timestamp = 0
+        self.audio_codec = codec
         self._running = False
         self._thread: threading.Thread | None = None
 
@@ -82,7 +84,7 @@ class RTPSender:
                     payload = b"\xd5" * 160
 
                 packet = RTPPacket(
-                    payload_type=PayloadType.PCMA,
+                    payload_type=self.audio_codec,
                     sequence=self.sequence,
                     timestamp=self.timestamp,
                     ssrc=self.ssrc,
@@ -322,7 +324,12 @@ class RTPHandler:
         self.sock.settimeout(1.0)
 
         self.audio_codec = codec
-        self.sender = RTPSender(sock=self.sock, remote_addr=remote_recv_addr, ssrc=ssrc)
+        self.sender = RTPSender(
+            sock=self.sock,
+            remote_addr=remote_recv_addr,
+            ssrc=ssrc,
+            codec=self.audio_codec,
+        )
         self.receiver = RTPReceiver(sock=self.sock, codec=self.audio_codec)
 
         self.logger = logging.getLogger(__name__)
