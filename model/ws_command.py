@@ -14,6 +14,7 @@ class CommandType(StrEnum):
     BYE = "BYE"
     RING_ANS = "RING_ANS"
     RING_IGNORE = "RING_IGNORE"
+    CALL_FAILED = "CALL_FAILED"
 
 
 class WebSocketCommand(BaseModel):

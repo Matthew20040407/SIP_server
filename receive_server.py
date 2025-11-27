@@ -129,7 +129,7 @@ class RelayServer:
                 self._handle_request(parsed_message, addr, socket)
 
             case SIPResponse():
-                self._handle_response(parsed_message, addr)
+                self._handle_response(parsed_message, addr, socket)
 
             case _:
                 self.logger.error(f"Unknown message type: {type(parsed_message)}")
@@ -189,20 +189,6 @@ class RelayServer:
                 response = self._build_response(request, "501 Not Implemented")
                 self._send_response(addr, response, socket)
 
-    def _handle_response(
-        self, response: SIPResponse | SIPRequest, addr: tuple[str, int]
-    ) -> None:
-        if isinstance(response, SIPResponse):
-            status_code = response.status_line.status_code
-        elif isinstance(response, SIPRequest):
-            status_code = response.request_line.method
-
-        call_id = response.headers.call_id
-
-        self.logger.info(f"Received {status_code} response for Call-ID: {call_id}")
-        # TODO
-        # handel response
-
     def ws_message_handler(self, ws_command: WebSocketCommand) -> None:
         self.logger.info(f"Processing message from WS: {ws_command.type}")
         self.logger.debug(ws_command.content)
@@ -222,9 +208,78 @@ class RelayServer:
             case _:
                 self.logger.error(f"Invalid command: {ws_command.type}")
 
+    def _handle_response(
+        self, response: SIPResponse, addr: tuple[str, int], socket: socket.socket
+    ) -> None:
+        status_code = response.status_line.status_code
+        call_id = response.headers.call_id
+
+        if not call_id:
+            self.logger.error("Response missing Call-ID")
+            return
+
+        session = self.sessions.get(call_id)
+        if not session:
+            self.logger.warning(f"Response for unknown call: {call_id}")
+            return
+
+        self.logger.info(f"Received {status_code} response for Call-ID: {call_id}")
+        cseq = response.headers.cseq
+
+        if not cseq:
+            raise ValueError("No cseq")
+
+        self.logger.info(
+            f"Call {call_id}: received {status_code} {response.status_line.reason_phrase}"
+        )
+
+        # Handle by status code
+        if 100 <= status_code < 200:
+            # Provisional responses (180 Ringing, 183 Session Progress)
+            if status_code == 180:
+                self.logger.info(f"Call {call_id}: Ringing")
+                ws_command = self.ws_command_helper.builder(
+                    CommandType.CALL_IGNORE, message=call_id
+                )
+                ws_server.send_message(ws_command)
+
+            elif status_code == 183:
+                self.logger.info(f"Call {call_id}: Session Progress (early media)")
+                # TODO: Handle early media if SDP present
+
+        elif status_code == 200:
+            if "INVITE" in cseq:
+                self._handle_send_ack(response, session, addr, socket)
+
+            elif "BYE" in cseq:
+                self.logger.info(f"Call {call_id}: BYE confirmed")
+                # Call already terminated, just cleanup
+                if call_id in self.sessions:
+                    del self.sessions[call_id]
+
+        elif 300 <= status_code < 700:
+            # Error responses (Busy, Unavailable, etc.)
+            reason = response.status_line.reason_phrase
+            self.logger.warning(f"Call {call_id} failed: {status_code} {reason}")
+
+            # Send ACK for error response (transaction cleanup)
+            resp = self._build_response(response, str(status_code))
+            self._send_response(addr, resp, socket)
+
+            # Cleanup
+            if call_id in self.sessions:
+                session.stop_and_save()
+                del self.sessions[call_id]
+
+            # Notify UI
+            ws_command = self.ws_command_helper.builder(
+                CommandType.CALL_FAILED, message=f"{status_code} {reason}"
+            )
+            ws_server.send_message(ws_command)
+
     def _handle_invite(
         self,
-        msg: SIPRequest,
+        msg: SIPRequest | SIPResponse,
         call_id: str,
         addr: tuple[str, int],
         socket: socket.socket,
@@ -329,9 +384,89 @@ class RelayServer:
         except Exception as e:
             self.logger.exception(f"Failed to start audio: {e}")
 
+    def _handle_send_ack(
+        self,
+        response: SIPResponse,
+        session: SIPRTPSession,
+        addr: tuple[str, int],
+        socket: socket.socket,
+    ) -> None:
+        """
+        Handle 200 OK for INVITE.
+
+        Good taste: Send ACK immediately, then start RTP.
+        """
+        call_id = response.headers.call_id
+
+        if not call_id:
+            raise ValueError("No call-id")
+
+        cseq_header = response.headers.cseq
+        if not cseq_header:
+            raise ValueError("No CSeq")
+
+        cseq_number = cseq_header.split()[0]
+
+        # Prevent duplicate ACK
+        if getattr(session, "ack_sent", False):
+            self.logger.debug(
+                f"ACK already sent for {call_id}, ignoring retransmitted 200 OK"
+            )
+            return
+
+        # Extract remote SDP
+        if not isinstance(response.body, SDPMessage):
+            self.logger.error("200 OK missing SDP body")
+            # Send BYE to terminate
+            self._handle_bye(response, call_id, addr, socket)
+            return
+
+        remote_sdp = response.body
+        self.logger.debug(f"Remote SDP: {remote_sdp.model_dump_json(indent=2)}")
+
+        # Update RTP session with remote parameters
+        # try:
+        #     session.handle_answer(remote_sdp)
+        # except Exception as e:
+        #     self.logger.error(f"Failed to process remote SDP: {e}")
+        #     self._handle_bye(response, call_id, addr, socket)
+        #     return
+
+        # Start RTP session
+        # self.logger.info(
+        #     f"Call {call_id} established: "
+        #     f"local={session.local_recv_port}, remote={session.remote_port}"
+        # )
+
+        # Send ACK
+        # contact = response.headers.
+        # uri_match = re.search(r"<([^>]+)>|^(sip:[^;]+)", contact)
+        ack_uri = f"sip:{addr[0]}:{addr[1]}"
+
+        ack_lines = "\r\n".join(
+            [
+                f"ACK {ack_uri} SIP/2.0",
+                f"Via: SIP/2.0/UDP {self.local_ip}:{self.recv_port};branch=z9hG4bK-{uuid.uuid4().hex[:16]}",
+                f"From: {response.headers.from_}",  # Copy from 200 OK
+                f"To: {response.headers.to}",  # Copy from 200 OK (includes To tag)
+                f"Call-ID: {call_id}",
+                f"CSeq: {cseq_number} ACK",
+                "Max-Forwards: 70",
+                "Content-Length: 0",
+                "",
+                "",
+            ]
+        )
+        self.logger.debug(ack_lines)
+        self._send_response(addr, ack_lines, socket)
+        ws_command = self.ws_command_helper.builder(
+            CommandType.CALL_ANS, message=call_id
+        )
+        ws_server.send_message(ws_command)
+
     def _handle_bye(
         self,
-        msg: SIPRequest,
+        msg: SIPRequest | SIPResponse,
         call_id: str,
         addr: tuple[str, int],
         socket: socket.socket,
@@ -403,7 +538,7 @@ class RelayServer:
         ws_command = self.ws_command_helper.builder(CommandType.RING_IGNORE)
         ws_server.send_message(ws_command)
 
-    def _build_response(self, request: SIPRequest, status: str) -> str:
+    def _build_response(self, request: SIPRequest | SIPResponse, status: str) -> str:
         """
         Build a simple SIP response.
 
@@ -427,7 +562,9 @@ class RelayServer:
         ]
         return "\r\n".join(lines)
 
-    def _build_ok_response(self, request: SIPRequest, sdp_answer: SDPMessage) -> str:
+    def _build_ok_response(
+        self, request: SIPRequest | SIPResponse, sdp_answer: SDPMessage
+    ) -> str:
         """
         Build 200 OK response with SDP body.
 
