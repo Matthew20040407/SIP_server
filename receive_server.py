@@ -195,6 +195,9 @@ class RelayServer:
         session = self.sessions.get(call_id)
         if not session:
             self.logger.warning(f"Response for unknown call: {call_id}")
+
+            resp = self._build_response(response, "603 Decline")
+            self._send_response(addr, resp, socket)
             return
 
         self.logger.info(f"Received {status_code} response for Call-ID: {call_id}")
@@ -410,6 +413,7 @@ class RelayServer:
 
         # self.logger.info(response)
         session.create_rtp_handler(response.body)
+        self.logger.info(f"{response.body=}")
         self.logger.info(f"{session.local_send_port=}")
         self.logger.info(f"{session.local_recv_port=}")
 

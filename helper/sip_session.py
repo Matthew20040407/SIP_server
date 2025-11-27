@@ -7,6 +7,7 @@ from secrets import randbelow, randbits
 
 # from typing import Callable
 from helper.rtp_handler import RTPHandler
+from model.rtp import PayloadType
 from model.sip_message import MediaDescription, SDPMessage, TimeDescription
 
 
@@ -289,6 +290,7 @@ class SIPRTPSession:
         self.stats = {"packets_received": 0, "packets_sent": 0, "bytes_received": 0}
 
         self.rtp_port_allocator = RTPPortAllocator()
+        self.codec_type: PayloadType = PayloadType.PCMA
 
     def handle_invite(
         self,
@@ -334,10 +336,23 @@ class SIPRTPSession:
 
     def create_rtp_handler(self, sdp_offer: SDPMessage) -> None:
         self.params = RTPSessionParams.from_sdp(sdp_offer)
+        self.logger.info(self.params.codec)
+
+        match self.params.codec:
+            case "PCMA":
+                self.codec_type = PayloadType.PCMA
+
+            case "PCMU":
+                self.codec_type = PayloadType.PCMU
+
+            case _:
+                self.codec_type = PayloadType.PCMA
+
         self.rtp_handle = RTPHandler(
             local_port=self.local_send_port,
             remote_recv_addr=(self.params.remote_ip, self.params.remote_port),
             ssrc=randbits(32),
+            codec=self.codec_type,
         )
 
     def get_stats(self) -> dict:

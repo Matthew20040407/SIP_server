@@ -130,7 +130,7 @@ class RTPReceiver:
     3. If callback raises exception, packet is dropped but thread continues
     """
 
-    def __init__(self, sock: socket.socket):
+    def __init__(self, sock: socket.socket, codec: PayloadType):
         self.logger = logging.getLogger("RTPReceiver")
         self.sock = sock
 
@@ -145,6 +145,8 @@ class RTPReceiver:
             "lost_packets": 0,
             "last_sequence": -1,
         }
+
+        self.audio_codec = codec
 
         self._recv_queue: queue.Queue[RTPPacket] = queue.Queue()
 
@@ -237,15 +239,22 @@ class RTPReceiver:
         )
 
     def save_wav(self, output_path: Path) -> None:
-        """Save received G.711 μ-law to WAV"""
-
         self.logger.info(f"Saving From buffer: {len(self.recv_buffer)}")
         if not self.recv_buffer:
             return
 
         pcm_data = []
         for buffer_bytes in self.recv_buffer:
-            pcm_bytes = audioop.alaw2lin(buffer_bytes, 2)
+            match self.audio_codec:
+                case PayloadType.PCMA:
+                    pcm_bytes = audioop.alaw2lin(buffer_bytes, 2)
+
+                case PayloadType.PCMU:
+                    pcm_bytes = audioop.ulaw2lin(buffer_bytes, 2)
+
+                case _:
+                    pcm_bytes = audioop.alaw2lin(buffer_bytes, 2)
+
             pcm_data.append(pcm_bytes)
         self.logger.info(f"Saving PCM data: {len(pcm_data)}")
 
@@ -257,7 +266,7 @@ class RTPReceiver:
             for pcm in pcm_data:
                 wav.writeframes(pcm)
 
-        self.logger.info(f"Saved to {output_path}")
+        self.logger.info(f"Saved to {output_path} as {self.audio_codec=}")
 
     def stop(self) -> None:
         """Graceful shutdown"""
@@ -306,13 +315,16 @@ class RTPHandler:
         remote_recv_addr: tuple[str, int],
         local_port: int | None = None,
         ssrc: int = 0x12345678,
+        codec: PayloadType = PayloadType.PCMA,
     ) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(("192.168.1.101", local_port))
         self.sock.settimeout(1.0)
 
+        self.audio_codec = codec
         self.sender = RTPSender(sock=self.sock, remote_addr=remote_recv_addr, ssrc=ssrc)
-        self.receiver = RTPReceiver(sock=self.sock)
+        self.receiver = RTPReceiver(sock=self.sock, codec=self.audio_codec)
+
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"[RTPHandler] {remote_recv_addr=} {local_port=}")
 
@@ -354,7 +366,13 @@ class RTPHandler:
                 # Pad last packet with silence
                 pcm_bytes += b"\x00\x00" * ((bytes_per_packet - len(pcm_bytes)) // 2)
 
-            alaw_bytes = audioop.lin2alaw(pcm_bytes, 2)
+            match self.audio_codec:
+                case PayloadType.PCMA:
+                    alaw_bytes = audioop.lin2alaw(pcm_bytes, 2)
+
+                case PayloadType.PCMU:
+                    alaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
+
             packets.append(alaw_bytes)
             self.send_packet(alaw_bytes)
             offset += bytes_per_packet
