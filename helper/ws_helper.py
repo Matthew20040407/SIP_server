@@ -34,7 +34,6 @@ class WebsocketServer:
 
                 command = self.parser(message=str(message))
                 self._recv_queue.put(command)
-                self.logger.info(self._recv_queue.qsize())
                 self.status["recv"] += 1
         except Exception as e:
             self.logger.error(f"recv_loop CRASHED: {e}", exc_info=True)
@@ -58,9 +57,6 @@ class WebsocketServer:
         self._send_queue.put(message)
 
     def get_message(self) -> WebSocketCommand | None:
-        qsize = self._recv_queue.qsize()
-        self.logger.info(f"get_message() called on {id(self)}, queue size: {qsize}")
-
         try:
             return self._recv_queue.get(block=False)
         except queue.Empty:

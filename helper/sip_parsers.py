@@ -1,13 +1,14 @@
-# Code by DHT@Matthew
-
 import logging
-import re
 
 from model.sip_message import (
     MediaDescription,
     SDPMessage,
-    SIPMessage,
+    SIPHeaders,
+    SIPMethod,
+    SIPRequest,
     SIPRequestLine,
+    SIPResponse,
+    SIPStatusLine,
     TimeDescription,
 )
 
@@ -16,116 +17,180 @@ class SipMessageParser:
     def __init__(self) -> None:
         self.logger = logging.getLogger("SipMessageParser")
 
-    def parse_sip_message(self, raw_sip_message: str) -> SIPMessage:
-        self.logger.debug(raw_sip_message)
+    def parse_sip_message(self, raw_message: str) -> SIPRequest | SIPResponse:
+        lines = raw_message.split("\n")
+        first_line = lines[0].strip()
 
-        header_part, _, body = raw_sip_message.partition("\r\n\r\n")
-        if not body:
-            header_part, _, body = raw_sip_message.partition("\n\n")
+        empty_line_idx = None
+        for i, line in enumerate(lines[1:], start=1):
+            if not line.strip():
+                empty_line_idx = i
+                break
 
-        lines = [line.strip() for line in header_part.splitlines() if line.strip()]
-        if not lines:
-            raise ValueError("Empty SIP message")
+        if empty_line_idx is None:
+            raise ValueError("Invalid SIP message: no empty line")
 
-        # Parse request line
-        request_line_match = re.match(r"^(\w+)\s+(\S+)\s+(SIP/\d\.\d)$", lines[0])
-        if not request_line_match:
-            raise ValueError(f"Invalid SIP request line: {lines[0]}")
-        method, uri, version = request_line_match.groups()
-
-        # Parse headers
-        headers: dict[str, str] = {}
-        for line in lines[1:]:
+        headers = {}
+        for line in lines[1:empty_line_idx]:
+            line = line.strip()
             if ":" not in line:
                 continue
             key, value = line.split(":", 1)
-            headers[key.strip()] = value.strip()
+            key = key.strip()
+            value = value.strip()
 
-        parsed_sdp_message = (
-            self.parse_sdp_message(raw_sdp_message=body) if body else None
-        )
+            if key in headers:
+                headers[key] += "\n" + value
+            else:
+                headers[key] = value
 
-        return SIPMessage(
-            request_line=SIPRequestLine(method=method, uri=uri, version=version),
-            headers=headers,
-            body=parsed_sdp_message if parsed_sdp_message else "",
-        )
+        body = "\n".join(lines[empty_line_idx + 1 :]).strip()
+        sip_headers = SIPHeaders(**headers)
+        if headers.get("Content-Type") == "application/sdp" and body:
+            try:
+                body = self.parse_sdp_message(body)
+            except Exception as e:
+                self.logger.error(f"[Parser] {e}")
+                pass
 
-    def parse_sdp_message(self, raw_sdp_message: str = "") -> SDPMessage:
-        if not raw_sdp_message:
-            raise ValueError("Empty SDP message")
-        self.logger.debug(raw_sdp_message)
-        sections = re.split(r"(m=)", raw_sdp_message, flags=re.MULTILINE)
+        parts = first_line.split(None, 2)
 
-        sdp_message = self._operator_parser(sections[0])
-
-        media_data_list = []
-        for i in range(1, len(sections), 2):
-            media_data = self._operator_parser("m=" + sections[i + 1])
-
-            media_data_list.append(
-                MediaDescription(
-                    m=media_data["media"],
-                    a=media_data["attributes"],
-                    c=media_data["connection_info"],
-                    b=media_data["bandwidth_info"],
-                )
+        if parts[0].startswith("SIP/"):
+            return SIPResponse(
+                status_line=SIPStatusLine(
+                    version=parts[0],
+                    status_code=int(parts[1]),
+                    reason_phrase=parts[2] if len(parts) > 2 else "",
+                ),
+                headers=sip_headers,
+                body=body,
             )
-        return SDPMessage(**sdp_message, media_descriptions=media_data_list)
+        else:
+            return SIPRequest(
+                request_line=SIPRequestLine(
+                    method=SIPMethod(parts[0]),
+                    uri=parts[1],
+                    version=parts[2] if len(parts) > 2 else "SIP/2.0",
+                ),
+                headers=sip_headers,
+                body=body,
+            )
 
-    def _operator_parser(self, sections) -> dict[str, str | list[str] | int]:
-        session_data = {}
-        for line in sections.splitlines():
-            prefix, _, value = line.partition("=")
-            prefix = prefix.replace(" ", "")
-            self.logger.debug(prefix, value)
-            # self.logger.debug(prefix, value)
+    def parse_sdp_message(self, raw_sdp_message: str) -> SDPMessage:
+        """
+        Parse SDP message.
 
-            if prefix == "v":
-                session_data["version"] = int(value)
+        Good taste:
+        1. Split at first 'm=' → session vs media
+        2. Parse session and media with same logic
+        3. No special cases, no magic indexes
+        """
+        if not raw_sdp_message.strip():
+            raise ValueError("Empty SDP message")
 
-            elif prefix == "o":
-                session_data["origin"] = value
+        first_media_pos = raw_sdp_message.find("\nm=")
 
-            elif prefix == "s":
-                session_data["session_name"] = value
+        if first_media_pos == -1:
+            if raw_sdp_message.startswith("m="):
+                session_text = ""
+                media_text = raw_sdp_message
+            else:
+                session_text = raw_sdp_message
+                media_text = ""
+        else:
+            session_text = raw_sdp_message[:first_media_pos]
+            media_text = raw_sdp_message[first_media_pos + 1 :]
 
-            elif prefix == "i":
-                session_data["title"] = value | ""
+        session_data = self._parse_sdp_fields(session_text)
 
-            elif prefix == "u":
-                session_data["uri"] = value | ""
+        media_descriptions = []
+        if media_text:
+            media_blocks = media_text.split("\nm=")
 
-            elif prefix == "e":
-                session_data["email"] = value | ""
+            for i, block in enumerate(media_blocks):
+                if i > 0:
+                    block = "m=" + block
 
-            elif prefix == "p":
-                session_data["phone"] = value | ""
+                media_data = self._parse_sdp_fields(block)
 
-            elif prefix == "c":
-                session_data["connection_info"] = value
-
-            elif prefix == "b":
-                session_data.setdefault("bandwidth_info", []).append(value)
-
-            elif prefix == "t":
-                session_data.setdefault("time_descriptions", []).append(
-                    TimeDescription(t=value)
+                media_descriptions.append(
+                    MediaDescription(
+                        m=str(media_data.get("media", "")),
+                        i=str(media_data.get("title")),
+                        c=str(media_data.get("connection_info")),
+                        k=str(media_data.get("encryption_key")),
+                    )
                 )
 
-            elif prefix == "z":
-                session_data.setdefault("timezone_adjustments", []).append(value)
+        return SDPMessage(
+            **session_data,
+            media_descriptions=media_descriptions if media_descriptions else None,  # pyright: ignore[reportCallIssue]
+        )
 
-            elif prefix == "k":
-                session_data["encryption_key"] = value | ""
+    def _parse_sdp_fields(self, text: str) -> dict[str, str | list[str] | int]:
+        """
+        Parse SDP fields from text.
 
-            elif prefix == "m":
-                session_data["media"] = value
+        Good taste: Data-driven, not if-elif hell.
+        Works for both session-level and media-level fields.
+        """
 
-            elif prefix == "a":
-                session_data.setdefault("attributes", []).append(value)
+        FIELD_SPECS = {
+            "v": ("version", int, False),
+            "o": ("origin", str, False),
+            "s": ("session_name", str, False),
+            "i": ("title", str, False),
+            "u": ("uri", str, False),
+            "e": ("email", str, True),
+            "p": ("phone", str, True),
+            "c": ("connection_info", str, False),
+            "b": ("bandwidth_info", str, True),
+            "t": ("time_descriptions", "TimeDescription", True),
+            "z": ("timezone_adjustments", str, True),
+            "k": ("encryption_key", str, False),
+            "a": ("attributes", str, True),
+            "m": ("media", str, False),
+        }
 
-        return session_data
+        result = {}
+
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or "=" not in line:
+                continue
+
+            prefix, _, value = line.partition("=")
+            prefix = prefix.strip()
+            value = value.strip()
+
+            if prefix not in FIELD_SPECS:
+                self.logger.warning(f"Unknown SDP field: {prefix}={value}")
+                continue
+
+            field_name, field_type, is_list = FIELD_SPECS[prefix]
+
+            try:
+                if isinstance(field_type, int):
+                    parsed_value = int(value)
+                elif field_type == "TimeDescription":
+                    parsed_value = TimeDescription(t=value)
+                else:
+                    parsed_value = value
+
+                if is_list:
+                    result.setdefault(field_name, []).append(parsed_value)
+                else:
+                    result[field_name] = parsed_value
+
+            except (ValueError, TypeError) as e:
+                self.logger.error(f"Failed to parse {prefix}={value}: {e}")
+
+                if isinstance(field_type, int):
+                    result[field_name] = 0
+                elif not is_list:
+                    result[field_name] = ""
+
+        return result
 
 
 if __name__ == "__main__":

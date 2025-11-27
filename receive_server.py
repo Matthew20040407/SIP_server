@@ -3,13 +3,14 @@ import socket
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from helper.sip_parsers import SipMessageParser
 from helper.sip_session import SIPRTPSession
 from helper.ws_command import WSCommandHelper
 from helper.ws_helper import ws_server
-from model.sip_message import SDPMessage, SIPMessage
+from model.sip_message import SDPMessage, SIPMethod, SIPRequest, SIPResponse
 from model.ws_command import CommandType, WebSocketCommand
 
 
@@ -20,11 +21,13 @@ class RelayServer:
         transf_port: int = 5060,
         recv_port: int = 5062,
         local_ip: str = "192.168.1.101",
+        sip_server_ip: str = "192.168.1.170",
     ):
         self.host = host
         self.recv_port = recv_port
         self.transf_port = transf_port
         self.local_ip = local_ip
+        self.sip_server_ip = sip_server_ip
 
         self.logger = logging.getLogger("SIPServer")
         logging.basicConfig(
@@ -62,10 +65,7 @@ class RelayServer:
         while not self._stop_flag.is_set():
             try:
                 ws_message = ws_server.get_message()
-                self.logger.info(ws_message)
-                time.sleep(1)
                 if ws_message:
-                    self.logger.info(ws_message.type)
                     self.ws_message_handler(ws_message)
 
             except KeyboardInterrupt:
@@ -120,42 +120,88 @@ class RelayServer:
 
         try:
             parsed_message = self.sip_message_parser.parse_sip_message(message)
-            self.logger.debug(parsed_message.model_dump_json(indent=4))
         except Exception as e:
-            self.logger.error(f"Failed to parse SIP message: {e}")
-            self._send_response(addr, "SIP/2.0 400 Bad Request\r\n\r\n", socket)
+            self.logger.error(f"Parse failed: {e}")
             return
 
-        call_id = parsed_message.headers.get("Call-ID")
-        if not call_id:
-            self.logger.error("No Call-ID in message")
-            self._send_response(addr, "SIP/2.0 400 Bad Request\r\n\r\n", socket)
-            return
+        match parsed_message:
+            case SIPRequest():
+                self._handle_request(parsed_message, addr, socket)
 
-        match parsed_message.request_line.method:
-            case "INVITE":
-                self.logger.info("INVITE")
-                self._handle_invite(parsed_message, call_id, addr, socket)
-
-            case "ACK":
-                self.logger.info("ACK")
-                self._handle_ack(parsed_message, call_id, addr)
-
-            case "BYE":
-                self.logger.info("BYE")
-                self._handle_bye(parsed_message, call_id, addr, socket)
-
-            case "CANCEL":
-                self.logger.info("CANCEL")
-                self._handle_cancel(parsed_message, call_id, addr, socket)
+            case SIPResponse():
+                self._handle_response(parsed_message, addr)
 
             case _:
-                self.logger.warning(
-                    f"Unhandled method: {parsed_message.request_line.method}"
-                )
+                self.logger.error(f"Unknown message type: {type(parsed_message)}")
 
-                response = self._build_response(parsed_message, "501 Not Implemented")
+        # call_id = parsed_message.headers.call_id
+        # if not call_id:
+        #     self.logger.error("No Call-ID in message")
+        #     self._send_response(addr, "SIP/2.0 400 Bad Request\r\n\r\n", socket)
+        #     return
+
+        # match parsed_message.request_line.method:
+        #     case "INVITE":
+        #         self.logger.info("INVITE")
+        #         self._handle_invite(parsed_message, call_id, addr, socket)
+
+        #     case "ACK":
+        #         self.logger.info("ACK")
+        #         self._handle_ack(parsed_message, call_id, addr)
+
+        #     case "BYE":
+        #         self.logger.info("BYE")
+        #         self._handle_bye(parsed_message, call_id, addr, socket)
+
+        #     case "CANCEL":
+        #         self.logger.info("CANCEL")
+        #         self._handle_cancel(parsed_message, call_id, addr, socket)
+
+        #     case _:
+        #         self.logger.warning(
+        #             f"Unhandled method: {parsed_message.request_line.method}"
+        #         )
+
+        #         response = self._build_response(parsed_message, "501 Not Implemented")
+        #         self._send_response(addr, response, socket)
+
+    def _handle_request(
+        self, request: SIPRequest, addr: tuple[str, int], socket: socket.socket
+    ) -> None:
+        """Handle SIP requests."""
+        call_id = request.headers.call_id
+        if not call_id:
+            self.logger.error("Missing Call-ID")
+            response = self._build_response(request, "400 Bad Request")
+            self._send_response(addr, response, socket)
+            return
+
+        match request.request_line.method:
+            case SIPMethod.INVITE:
+                self._handle_invite(request, call_id, addr, socket)
+            case SIPMethod.ACK:
+                self._handle_ack(call_id, addr)
+            case SIPMethod.BYE:
+                self._handle_bye(request, call_id, addr, socket)
+            case SIPMethod.CANCEL:
+                self._handle_cancel(request, call_id, addr, socket)
+            case _:
+                response = self._build_response(request, "501 Not Implemented")
                 self._send_response(addr, response, socket)
+
+    def _handle_response(
+        self, response: SIPResponse | SIPRequest, addr: tuple[str, int]
+    ) -> None:
+        if isinstance(response, SIPResponse):
+            status_code = response.status_line.status_code
+        elif isinstance(response, SIPRequest):
+            status_code = response.request_line.method
+
+        call_id = response.headers.call_id
+
+        self.logger.info(f"Received {status_code} response for Call-ID: {call_id}")
+        # TODO
+        # handel response
 
     def ws_message_handler(self, ws_command: WebSocketCommand) -> None:
         self.logger.info(f"Processing message from WS: {ws_command.type}")
@@ -163,7 +209,7 @@ class RelayServer:
 
         match ws_command.type:
             case CommandType.CALL:
-                self.logger.info("[WS] incoming CAll")
+                self.logger.info("[WS] outgoing CAll")
                 phone_number = str(ws_command.content)
                 self._handle_call(phone_number=phone_number)
 
@@ -178,7 +224,7 @@ class RelayServer:
 
     def _handle_invite(
         self,
-        msg: SIPMessage,
+        msg: SIPRequest,
         call_id: str,
         addr: tuple[str, int],
         socket: socket.socket,
@@ -229,6 +275,15 @@ class RelayServer:
             response = self._build_ok_response(msg, sdp_answer)
             self._send_response(addr, response, socket)
 
+            if not msg.headers.from_:
+                return
+
+            phone_number = msg.headers.from_.split(" ")[0].replace('"', "")
+            ws_command = self.ws_command_helper.builder(
+                CommandType.RING_ANS, message=phone_number
+            )
+            ws_server.send_message(ws_command)
+
             self.logger.info(f"> Sent 200 OK to {addr}")
 
         except ValueError as e:
@@ -244,7 +299,6 @@ class RelayServer:
 
     def _handle_ack(
         self,
-        msg: SIPMessage,
         call_id: str,
         addr: tuple[str, int],
     ) -> None:
@@ -277,7 +331,7 @@ class RelayServer:
 
     def _handle_bye(
         self,
-        msg: SIPMessage,
+        msg: SIPRequest,
         call_id: str,
         addr: tuple[str, int],
         socket: socket.socket,
@@ -315,6 +369,8 @@ class RelayServer:
             response = self._build_response(msg, "200 OK")
             self._send_response(addr, response, socket)
 
+            ws_command = self.ws_command_helper.builder(CommandType.BYE)
+            ws_server.send_message(ws_command)
             self.logger.info(f"> Call {call_id} terminated")
 
         except Exception as e:
@@ -324,7 +380,7 @@ class RelayServer:
 
     def _handle_cancel(
         self,
-        msg: SIPMessage,
+        msg: SIPRequest,
         call_id: str,
         addr: tuple[str, int],
         socket: socket.socket,
@@ -344,8 +400,10 @@ class RelayServer:
 
         response = self._build_response(msg, "200 OK")
         self._send_response(addr, response, socket)
+        ws_command = self.ws_command_helper.builder(CommandType.RING_IGNORE)
+        ws_server.send_message(ws_command)
 
-    def _build_response(self, request: SIPMessage, status: str) -> str:
+    def _build_response(self, request: SIPRequest, status: str) -> str:
         """
         Build a simple SIP response.
 
@@ -358,18 +416,18 @@ class RelayServer:
         """
         lines = [
             f"SIP/2.0 {status}",
-            f"Via: {request.headers.get('Via')}",
-            f"From: {request.headers.get('From')}",
-            f"To: {request.headers.get('To')}",
-            f"Call-ID: {request.headers.get('Call-ID')}",
-            f"CSeq: {request.headers.get('CSeq')}",
+            f"Via: {request.headers.via}",
+            f"From: {request.headers.from_}",
+            f"To: {request.headers.to}",
+            f"Call-ID: {request.headers.call_id}",
+            f"CSeq: {request.headers.cseq}",
             "Content-Length: 0",
             "",
             "",
         ]
         return "\r\n".join(lines)
 
-    def _build_ok_response(self, request: SIPMessage, sdp_answer: SDPMessage) -> str:
+    def _build_ok_response(self, request: SIPRequest, sdp_answer: SDPMessage) -> str:
         """
         Build 200 OK response with SDP body.
 
@@ -386,11 +444,11 @@ class RelayServer:
 
         lines = [
             "SIP/2.0 200 OK",
-            f"Via: {request.headers.get('Via')}",
-            f"From: {request.headers.get('From')}",
-            f"To: {request.headers.get('To')}",
-            f"Call-ID: {request.headers.get('Call-ID')}",
-            f"CSeq: {request.headers.get('CSeq')}",
+            f"Via: {request.headers.via}",
+            f"From: {request.headers.from_}",
+            f"To: {request.headers.to}",
+            f"Call-ID: {request.headers.call_id}",
+            f"CSeq: {request.headers.cseq}",
             f"Contact: <sip:{self.local_ip}:{self.recv_port}>",
             "Content-Type: application/sdp",
             f"Content-Length: {len(sdp_body)}",
@@ -432,6 +490,7 @@ class RelayServer:
 
         return "\r\n".join(lines) + "\r\n"
 
+    # call section
     def _send_response(
         self, addr: tuple[str, int], response: str, socket: socket.socket
     ) -> None:
@@ -451,58 +510,85 @@ class RelayServer:
 
     def _handle_call(self, phone_number: str) -> str | None:
         """
-        Initiate outbound call to SIP server.
-
-        Args:
-            phone_number: Target phone number to dial
+        Initiate an outbound SIP call to a phone number.
 
         Returns:
-            call_id if INVITE sent successfully, None on failure
+            call_id if successful, None otherwise
         """
         import uuid
 
-        call_id = str(uuid.uuid4())
-        branch = f"z9hG4bK{uuid.uuid4().hex[:16]}"
-        tag = uuid.uuid4().hex[:8]
-
-        session = SIPRTPSession(local_ip=self.local_ip)
-        local_rtp_port = session.local_recv_port
-
-        if local_rtp_port is None:
-            raise Exception(f"SIPRTPSession {local_rtp_port=}")
-        sdp_body = self._build_sdp_offer(local_rtp_port)
-
-        target_uri = f"sip:{phone_number}@{self.host}"
-        invite = "\r\n".join(
-            [
-                f"INVITE {target_uri} SIP/2.0",
-                f"Via: SIP/2.0/UDP {self.local_ip}:{self.recv_port};branch={branch}",
-                f"From: <sip:relay@{self.local_ip}>;tag={tag}",
-                f"To: <{target_uri}>",
-                f"Call-ID: {call_id}",
-                "CSeq: 1 INVITE",
-                f"Contact: <sip:relay@{self.local_ip}:{self.recv_port}>",
-                "Content-Type: application/sdp",
-                "Max-Forwards: 70",
-                f"Content-Length: {len(sdp_body)}",
-                "",
-                sdp_body,
-            ]
-        )
+        call_id = f"{uuid.uuid4()}@{self.local_ip}"
+        session = None
+        send_port = recv_port = None
 
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.sendto(invite.encode("utf-8"), (self.host, self.transf_port))
-            sock.close()
+            # Step 1: Allocate resources
+            session = SIPRTPSession(local_ip=self.local_ip)
+            send_port, recv_port = session.rtp_port_allocator.allocate_pair()
+            session.local_send_port = send_port
+            session.local_recv_port = recv_port
 
+            # Step 2: Build message
+            invite_msg = self._build_invite_message(
+                phone_number=phone_number, call_id=call_id, recv_port=recv_port
+            )
+            self.logger.info(invite_msg)
+            # Step 3: Send (no exception past here means success)
+            self._send_sip_message(invite_msg)
+
+            # Step 4: ONLY NOW register the session
             self.sessions[call_id] = session
-            self.logger.info(f"INVITE sent to {phone_number} (call_id={call_id})")
+            self.logger.info(f"[Call] Success: {call_id}")
 
             return call_id
 
         except Exception as e:
-            self.logger.exception(f"Failed to send INVITE: {e}")
+            # Clean up on ANY failure
+            self.logger.error(f"[Call] Failed: {e}")
+
+            if send_port and recv_port and session:
+                session.rtp_port_allocator.release_pair(send_port, recv_port)
+
             return None
+
+    def _build_invite_message(
+        self, phone_number: str, call_id: str, recv_port: int
+    ) -> str:
+        """
+        Build complete INVITE message.
+        Pure function - no side effects.
+        """
+        from_tag = f"tag-{uuid.uuid4().hex[:8]}"
+        branch = f"z9hG4bK-{uuid.uuid4().hex[:16]}"
+
+        to_uri = f"sip:{phone_number}@{self.sip_server_ip}"
+        from_uri = f"sip:{self.local_ip}:{self.recv_port}"
+
+        sdp = self._build_sdp_offer(recv_port)
+
+        lines = [
+            f"INVITE {to_uri} SIP/2.0",
+            f"Via: SIP/2.0/UDP {self.local_ip}:{self.recv_port};branch={branch}",
+            f"From: <{from_uri}>;{from_tag}",
+            f"To: <{to_uri}>",
+            f"Call-ID: {call_id}",
+            "CSeq: 1 INVITE",
+            f"Contact: <sip:{self.local_ip}:{self.recv_port}>",
+            "Max-Forwards: 70",
+            "User-Agent: SIP-Relay-Server/1.0",
+            "Content-Type: application/sdp",
+            f"Content-Length: {len(sdp)}",
+            "",
+            sdp,
+        ]
+
+        return "\r\n".join(lines)
+
+    def _send_sip_message(self, message: str) -> None:
+        """Send SIP message via UDP. Raises on failure."""
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            destination = (self.sip_server_ip, self.transf_port)
+            sock.sendto(message.encode("utf-8"), destination)
 
     def _handle_rtp(self, rtp: bytes | str | None = None) -> None: ...
 

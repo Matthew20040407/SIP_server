@@ -9,7 +9,9 @@ from pydantic import (
 )
 
 
-class SIPMessageType(StrEnum):
+class SIPMethod(StrEnum):
+    """SIP request methods"""
+
     REGISTER = "REGISTER"
     INVITE = "INVITE"
     ACK = "ACK"
@@ -27,9 +29,27 @@ class SIPMessageType(StrEnum):
 
 
 class SIPRequestLine(BaseModel):
-    method: SIPMessageType
+    method: SIPMethod
     uri: str
-    version: str
+    version: str = "SIP/2.0"
+
+
+class SIPStatusLine(BaseModel):
+    version: str = "SIP/2.0"
+    status_code: int
+    reason_phrase: str
+
+
+class SIPHeaders(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    via: str | None = Field(default=None, alias="Via")
+    call_id: str | None = Field(default=None, alias="Call-ID")
+    from_: str | None = Field(default=None, alias="From")
+    to: str | None = Field(default=None, alias="To")
+    cseq: str | None = Field(default=None, alias="CSeq")
+    content_type: str | None = Field(default=None, alias="Content-Type")
+    content_length: int | None = Field(default=None, alias="Content-Length")
 
 
 class TimeDescription(BaseModel):
@@ -72,11 +92,23 @@ class SDPMessage(BaseModel):
     media_descriptions: list[MediaDescription] | None = Field(default=None, alias="m")
 
 
+class SIPRequest(BaseModel):
+    request_line: SIPRequestLine
+    headers: SIPHeaders
+    body: str | SDPMessage = ""
+
+
+class SIPResponse(BaseModel):
+    status_line: SIPStatusLine
+    headers: SIPHeaders
+    body: str | SDPMessage = ""
+
+
 class SIPMessage(BaseModel):
     request_line: SIPRequestLine
-    headers: dict[str, str]
+    headers: SIPHeaders
     body: str | SDPMessage
 
 
 class SIPMessageStatus(StrEnum):
-    type: SIPMessageType
+    type: SIPMethod
