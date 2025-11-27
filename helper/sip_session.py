@@ -4,10 +4,9 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from secrets import randbelow, randbits
-from typing import Callable
 
+# from typing import Callable
 from helper.rtp_handler import RTPHandler
-from model.rtp import RTPPacket
 from model.sip_message import MediaDescription, SDPMessage, TimeDescription
 
 
@@ -294,28 +293,11 @@ class SIPRTPSession:
     def handle_invite(
         self,
         sdp_offer: SDPMessage,
-        packet_callback: Callable[[RTPPacket], None] | None = None,
     ) -> SDPMessage:
-        """
-        Process SIP INVITE with SDP offer, setup RTP, return SDP answer.
-
-        Args:
-            sdp_offer: Parsed SDP from INVITE (your Pydantic model)
-            packet_callback: Optional callback for received RTP packets
-
-        Returns:
-            SDPMessage answer (serialize this into 200 OK body)
-
-        Example:
-            >>> # In your SIP handler
-            >>> sdp_offer = SDPMessage.model_validate(invite_body)
-            >>> sdp_answer = session.handle_invite(sdp_offer)
-            >>> response_body = sdp_answer.model_dump(by_alias=True, exclude_none=True)
-        """
         # Step 1: Extract RTP parameters from SDP offer
         self.params = RTPSessionParams.from_sdp(sdp_offer)
 
-        self.logger.info("> Incoming call")
+        self.logger.info("> Calling")
         self.logger.info(
             f"   Remote: {self.params.remote_ip}:{self.params.remote_port}"
         )
@@ -339,23 +321,7 @@ class SIPRTPSession:
             ssrc=randbits(32),
         )
 
-        # Step 4: Start receiving (with stats tracking)
-        def stats_callback(pkt: RTPPacket):
-            self.stats["packets_received"] += 1
-            self.stats["bytes_received"] += len(pkt.payload)
-            # Log every second (50 packets at 20ms)
-            if self.stats["packets_received"] % 50 == 0:
-                self.logger.info(
-                    f"> Received RTP {self.stats['packets_received']} packets ({self.stats['bytes_received']} bytes)"
-                )
-
-            # User callback
-            if packet_callback:
-                packet_callback(pkt)
-
-        # self.rtp_handle.start_receiving(stats_callback)
-
-        # Step 5: Build SDP answer
+        # Step 4: Build SDP answer
         sdp_answer = SDPBuilder.build_answer(
             local_ip=self.local_ip,
             local_recv_port=self.local_recv_port,
@@ -365,6 +331,62 @@ class SIPRTPSession:
         self.logger.info("> RTP session ready")
 
         return sdp_answer
+
+    def create_rtp_handler(self, sdp_offer: SDPMessage) -> None:
+        self.params = RTPSessionParams.from_sdp(sdp_offer)
+        self.rtp_handle = RTPHandler(
+            local_port=self.local_send_port,
+            remote_recv_addr=(self.params.remote_ip, self.params.remote_port),
+            ssrc=randbits(32),
+        )
+
+    def get_stats(self) -> dict:
+        """Get current session statistics"""
+        return self.stats.copy()
+
+    def start_rtp(self) -> None:
+        if not self.rtp_handle:
+            raise RuntimeError("Call handle_invite() first")
+        self.rtp_handle.start()
+
+    def send_audio(self, audio_data: bytes) -> None:
+        if not self.rtp_handle:
+            raise RuntimeError("Call handle_invite() first")
+
+        self.rtp_handle.send_packet(audio_data)
+
+    def recv_audio(self) -> bytes | None:
+        if not self.rtp_handle:
+            raise RuntimeError("Call handle_invite() first")
+
+        audio_packet = self.rtp_handle.recv_packet()
+        if audio_packet:
+            return audio_packet.payload
+        return
+
+    def stop_and_save(self, output_path: Path | None = None):
+        """
+        Stop RTP session and optionally save received audio.
+
+        Args:
+            output_path: Where to save received audio (None = don't save)
+        """
+        if not self.rtp_handle:
+            raise RuntimeError("Call handle_invite() first")
+
+        self.rtp_handle.stop()
+
+        if output_path:
+            self.logger.info(f"> Saving received audio to {output_path}")
+            self.rtp_handle.save_received_wav(output_path)
+
+        # Release ports
+        if self.local_send_port and self.local_recv_port:
+            self.rtp_port_allocator.release_pair(
+                self.local_send_port, self.local_recv_port
+            )
+
+        self.logger.info("> Session ended")
 
     def start_audio(self, mode: str = "wav", wav_path: Path | None = None):
         """
@@ -386,7 +408,7 @@ class SIPRTPSession:
         self.logger.info(f"Send from {self.local_send_port}")
         self.logger.info(f"Listening {self.local_recv_port}")
 
-        self.rtp_handle.start_receiving()
+        # self.rtp_handle.start_receiving()
 
         if mode == "wav":
             if not wav_path:
@@ -394,7 +416,7 @@ class SIPRTPSession:
             if not wav_path.exists():
                 raise ValueError(f"WAV file not found: {wav_path}")
 
-            self.rtp_handle.start_sending_wav(wav_path)
+            self.rtp_handle.send_wav(wav_path)
             self.logger.info(f"\tFile: {wav_path}")
 
         elif mode == "dummy":
@@ -404,30 +426,7 @@ class SIPRTPSession:
         else:
             raise ValueError(f"Unknown mode: {mode}. Use 'dummy' or 'wav'")
 
-    def stop_and_save(self, output_path: Path | None = None):
-        """
-        Stop RTP session and optionally save received audio.
-
-        Args:
-            output_path: Where to save received audio (None = don't save)
-        """
-        if not self.rtp_handle:
-            return
-
-        self.rtp_handle.stop()
-
-        if output_path:
-            self.logger.info(f"> Saving received audio to {output_path}")
-            self.rtp_handle.save_received_wav(output_path)
-
-        # Release ports
-        if self.local_send_port and self.local_recv_port:
-            self.rtp_port_allocator.release_pair(
-                self.local_send_port, self.local_recv_port
-            )
-
-        self.logger.info("> Session ended")
-
-    def get_stats(self) -> dict:
-        """Get current session statistics"""
-        return self.stats.copy()
+    def __str__(self) -> str:
+        return "\n".join(
+            [str(self.params), str(self.local_send_port), str(self.local_recv_port)]
+        )

@@ -2,14 +2,15 @@
 
 import audioop
 import logging
+import queue
 import socket
 import tempfile
 import threading
 import time
 import wave
 from pathlib import Path
-from typing import Callable
 
+# from typing import Callable
 from pydub import AudioSegment
 
 from model.rtp import PayloadType, RTPPacket
@@ -40,7 +41,9 @@ class RTPSender:
         self._running = False
         self._thread: threading.Thread | None = None
 
-    def start(self, audio_generator: Callable[[], bytes]) -> None:
+        self._send_queue: queue.Queue[bytes] = queue.Queue()
+
+    def start(self) -> None:
         """
         Start sender thread.
 
@@ -56,21 +59,27 @@ class RTPSender:
         self._running = True
         self._thread = threading.Thread(
             target=self._send_loop,
-            args=(audio_generator,),
+            # args=(audio_generator,),
             name="RTPSender",  # Thread name for debugging
         )
         self._thread.daemon = True  # Die with main thread
         self._thread.start()
 
-    def _send_loop(self, audio_generator: Callable[[], bytes]) -> None:
+    def _send_loop(self) -> None:
         while self._running:
             try:
-                payload = audio_generator()
-                if not payload:
-                    self.logger.warning(
-                        f"[SENDER] Empty payload at packet {self.sequence}, stopping"
-                    )
-                    continue
+                # payload = audio_generator()
+                payload = b"\xd5" * 160
+                # if not payload:
+                #     self.logger.warning(
+                #         f"[SENDER] Empty payload at packet {self.sequence}, stopping"
+                #     )
+                #     continue
+
+                try:
+                    payload = self._send_queue.get()
+                except queue.Empty:
+                    payload = b"\xd5" * 160
 
                 packet = RTPPacket(
                     payload_type=PayloadType.PCMA,
@@ -89,7 +98,6 @@ class RTPSender:
                 # Assuming 160 samples per packet (20ms at 8000Hz)
                 self.timestamp = (self.timestamp + 160) & 0xFFFFFFFF
 
-                # Sleep 20ms for real-time pacing
                 time.sleep(0.007)
 
             except Exception as e:
@@ -106,6 +114,9 @@ class RTPSender:
         self._running = False
         if self._thread:
             self._thread.join(timeout=1.0)
+
+    def send_rtp_packet(self, packet: bytes) -> None:
+        self._send_queue.put(packet)
 
 
 class RTPReceiver:
@@ -135,30 +146,9 @@ class RTPReceiver:
             "last_sequence": -1,
         }
 
-    def start(self, packet_callback: Callable[[RTPPacket], None] | None = None):
-        """
-        Start receiver thread.
+        self._recv_queue: queue.Queue[RTPPacket] = queue.Queue()
 
-        Args:
-            packet_callback: Optional function called for each received packet.
-                             Signature: def callback(packet: RTPPacket) -> None
-
-                             CRITICAL: This runs in the receiver thread!
-                             - Keep it fast (< 1ms)
-                             - Don't block (no sleep, no network I/O)
-                             - Exceptions are caught and logged, packet is dropped
-
-                             Common use cases:
-                             - Logging/debugging: print packet info
-                             - Statistics: track packet loss, jitter
-                             - Forwarding: send to another RTP session
-                             - Real-time processing: speech recognition, DTMF detection
-
-        Example:
-            >>> def log_packet(pkt: RTPPacket):
-            ...     print(f"seq={pkt.sequence} ts={pkt.timestamp}")
-            >>> receiver.start(log_packet)
-        """
+    def start(self) -> None:
         if self._running:
             raise RuntimeError("Sender already running!")
 
@@ -168,13 +158,12 @@ class RTPReceiver:
         self._running = True
         self._thread = threading.Thread(
             target=self._recv_loop,
-            args=(packet_callback,),
             name="RTPReceiver",
         )
         self._thread.daemon = True
         self._thread.start()
 
-    def _recv_loop(self, packet_callback: Callable[[RTPPacket], None] | None):
+    def _recv_loop(self):
         """
         Main receive loop. Runs in dedicated thread.
 
@@ -220,16 +209,17 @@ class RTPReceiver:
 
                 # Step 3: Save payload for WAV writing
                 self.recv_buffer.append(packet.payload)
+                self._recv_queue.put(packet)
 
                 # Step 4: Update statistics
                 self._update_stats(packet)
 
-                # Step 5: Invoke user callback (if provided)
-                if packet_callback:
-                    try:
-                        packet_callback(packet)
-                    except Exception as e:
-                        self.logger.exception(f"Callback error: {e}")
+                # # Step 5: Invoke user callback (if provided)
+                # if packet_callback:
+                #     try:
+                #         packet_callback(packet)
+                #     except Exception as e:
+                #         self.logger.exception(f"Callback error: {e}")
 
             except socket.timeout as e:
                 self.logger.debug(f"[RTP] Receiver timeout: {e}")
@@ -303,15 +293,14 @@ class RTPReceiver:
         """
         return self.stats.copy()
 
+    def get_rtp_packet(self, timeout: float = 0.07) -> RTPPacket | None:
+        try:
+            return self._recv_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
 
 class RTPHandler:
-    """
-    SIP RTP handler with dual ports.
-
-    No shared state between sender and receiver.
-    Each owns its own socket, state, and thread.
-    """
-
     def __init__(
         self,
         remote_recv_addr: tuple[str, int],
@@ -327,13 +316,11 @@ class RTPHandler:
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"[RTPHandler] {remote_recv_addr=} {local_port=}")
 
-    def start_receiving(
-        self, packet_callback: Callable[[RTPPacket], None] | None = None
-    ) -> None:
-        """Start receiver thread"""
-        self.receiver.start(packet_callback)
+    def start(self) -> None:
+        self.receiver.start()
+        self.sender.start()
 
-    def start_sending_wav(self, audio_file_path: Path) -> None:
+    def send_wav(self, audio_file_path: Path) -> None:
         """Start sending WAV file (must be 8000Hz mono)"""
 
         input_path = Path(audio_file_path)
@@ -369,31 +356,8 @@ class RTPHandler:
 
             alaw_bytes = audioop.lin2alaw(pcm_bytes, 2)
             packets.append(alaw_bytes)
+            self.send_packet(alaw_bytes)
             offset += bytes_per_packet
-
-        # Generator that returns packets one by one
-        packet_index = 0
-        wav_finished = False
-
-        def wav_generator() -> bytes:
-            nonlocal packet_index, wav_finished
-            # Phase 1: WAV packets
-            if packet_index < len(packets):
-                packet = packets[packet_index]
-                packet_index += 1
-                return packet
-
-            # Phase 2: Keepalive
-            if not wav_finished:
-                self.logger.info("WAV finished, switching to silence keepalive")
-                wav_finished = True
-
-            return b"\xd5" * 160
-
-        self.sender.start(wav_generator)
-
-    def start_sending_dummy(self) -> None:
-        self.sender.start(lambda: b"\xd5" * 160)
 
     def save_received_wav(self, output_path: Path) -> None:
         """Save all received packets to WAV"""
@@ -404,3 +368,9 @@ class RTPHandler:
         self.receiver.stop()
         self.sock.close()
         self.logger.info("Socket closed")
+
+    def send_packet(self, packet: bytes) -> None:
+        self.sender.send_rtp_packet(packet)
+
+    def recv_packet(self) -> RTPPacket | None:
+        return self.receiver.get_rtp_packet()
