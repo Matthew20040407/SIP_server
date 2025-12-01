@@ -45,7 +45,7 @@ class WebsocketServer:
             try:
                 message = self._send_queue.get(timeout=1.0)
                 websocket.send(str(message))
-                self.logger.info(f"Sent: {message}")
+                self.logger.debug(f"Sent: {message}")
                 self.status["send"] += 1
             except queue.Empty:
                 continue

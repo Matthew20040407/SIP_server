@@ -13,7 +13,9 @@ from pathlib import Path
 # from typing import Callable
 from pydub import AudioSegment
 
+from helper.ws_helper import ws_server
 from model.rtp import PayloadType, RTPPacket
+from model.ws_command import CommandType
 
 
 class RTPSender:
@@ -70,13 +72,7 @@ class RTPSender:
     def _send_loop(self) -> None:
         while self._running:
             try:
-                # payload = audio_generator()
                 payload = b"\xd5" * 160
-                # if not payload:
-                #     self.logger.warning(
-                #         f"[SENDER] Empty payload at packet {self.sequence}, stopping"
-                #     )
-                #     continue
 
                 try:
                     payload = self._send_queue.get()
@@ -100,7 +96,7 @@ class RTPSender:
                 # Assuming 160 samples per packet (20ms at 8000Hz)
                 self.timestamp = (self.timestamp + 160) & 0xFFFFFFFF
 
-                time.sleep(0.007)
+                time.sleep(0.01)
 
             except Exception as e:
                 self.logger.exception(
@@ -214,16 +210,12 @@ class RTPReceiver:
                 # Step 3: Save payload for WAV writing
                 self.recv_buffer.append(packet.payload)
                 self._recv_queue.put(packet)
-
                 # Step 4: Update statistics
                 self._update_stats(packet)
 
-                # # Step 5: Invoke user callback (if provided)
-                # if packet_callback:
-                #     try:
-                #         packet_callback(packet)
-                #     except Exception as e:
-                #         self.logger.exception(f"Callback error: {e}")
+                # Step 5: Sent to ws
+                msg = ws_server.builder(CommandType.RTP, message=packet.payload.hex())
+                ws_server.send_message(msg)
 
             except socket.timeout as e:
                 self.logger.debug(f"[RTP] Receiver timeout: {e}")
@@ -262,7 +254,7 @@ class RTPReceiver:
 
         # Write WAV
         with wave.open(str(output_path), "wb") as wav:
-            wav.setnchannels(1)
+            wav.setnchannels(2)
             wav.setsampwidth(2)
             wav.setframerate(8000)
             for pcm in pcm_data:
@@ -395,6 +387,25 @@ class RTPHandler:
         self.logger.info("Socket closed")
 
     def send_packet(self, packet: bytes) -> None:
+        # offset = 0
+        # bytes_per_packet = 160 * 2
+
+        # while offset < len(packet):
+        #     pcm_bytes = packet[offset : offset + bytes_per_packet]
+        #     if len(pcm_bytes) < bytes_per_packet:
+        #         # Pad last packet with silence
+        #         pcm_bytes += b"\x00\x00" * ((bytes_per_packet - len(pcm_bytes)) // 2)
+
+        #     match self.audio_codec:
+        #         case PayloadType.PCMA:
+        #             alaw_bytes = audioop.lin2alaw(pcm_bytes, 2)
+
+        #         case PayloadType.PCMU:
+        #             alaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
+        #             alaw_bytes = audioop.lin2ulaw(packet, 2)
+
+        #     offset += bytes_per_packet
+        #     self.sender.send_rtp_packet(alaw_bytes)
         self.sender.send_rtp_packet(packet)
 
     def recv_packet(self) -> RTPPacket | None:

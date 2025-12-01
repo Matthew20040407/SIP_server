@@ -1,3 +1,5 @@
+# Code by DHT@Matthew
+
 import logging
 import socket
 import sys
@@ -8,6 +10,7 @@ from pathlib import Path
 
 from helper.sip_parsers import SipMessageParser
 from helper.sip_session import SIPRTPSession
+from helper.wav_handler import WavHandler
 from helper.ws_command import WSCommandHelper
 from helper.ws_helper import ws_server
 from model.sip_message import SDPMessage, SIPMethod, SIPRequest, SIPResponse
@@ -46,8 +49,6 @@ class RelayServer:
 
         self.ws_command_helper = WSCommandHelper()
         self._stop_flag = threading.Event()
-
-        # self.current_status = CommandType.IDLE
 
     def setup_sip_listener(self) -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -174,10 +175,11 @@ class RelayServer:
                 call_id = self._handle_call(phone_number=phone_number)
                 self.logger.info(f"Created {call_id=}")
             case CommandType.RTP:
-                self.logger.info("[WS] incoming RTP")
+                self.logger.info("[WS] Incoming RTP")
 
+                self._handle_rtp(str(ws_command.content))
             case CommandType.BYE:
-                self.logger.info("[WS] incoming BYE")
+                self.logger.info("[WS] Incoming BYE")
 
             case _:
                 self.logger.error(f"Invalid command: {ws_command.type}")
@@ -241,10 +243,8 @@ class RelayServer:
 
             # Cleanup
             if call_id in self.sessions:
-                # session.stop_and_save()
                 del self.sessions[call_id]
 
-            # Notify UI
             ws_command = self.ws_command_helper.builder(
                 CommandType.CALL_FAILED, message=f"{status_code} {reason}"
             )
@@ -406,7 +406,9 @@ class RelayServer:
         )
         self.logger.debug(ack_lines)
         self._send_response(addr, ack_lines, socket)
-        ws_command = self.ws_command_helper.builder(CommandType.CALL_ANS)
+        ws_command = self.ws_command_helper.builder(
+            CommandType.CALL_ANS, message=call_id
+        )
         ws_server.send_message(ws_command)
 
         self.logger.debug(f"Remote SDP: {response.body.model_dump_json(indent=2)}")
@@ -470,7 +472,9 @@ class RelayServer:
             response = self._build_response(msg, "200 OK")
             self._send_response(addr, response, socket)
 
-            ws_command = self.ws_command_helper.builder(CommandType.BYE)
+            ws_command = self.ws_command_helper.builder(
+                CommandType.BYE, message=call_id
+            )
             ws_server.send_message(ws_command)
             self.logger.info(f"> Call {call_id} terminated")
 
@@ -501,7 +505,9 @@ class RelayServer:
 
         response = self._build_response(msg, "200 OK")
         self._send_response(addr, response, socket)
-        ws_command = self.ws_command_helper.builder(CommandType.RING_IGNORE)
+        ws_command = self.ws_command_helper.builder(
+            CommandType.RING_IGNORE, message=call_id
+        )
         ws_server.send_message(ws_command)
 
     def _build_response(self, request: SIPRequest | SIPResponse, status: str) -> str:
@@ -636,7 +642,7 @@ class RelayServer:
             invite_msg = self._build_invite_message(
                 phone_number=phone_number, call_id=call_id, recv_port=recv_port
             )
-            self.logger.info(invite_msg)
+            self.logger.debug(invite_msg)
             # Step 3: Send (no exception past here means success)
             self._send_sip_message(invite_msg)
 
@@ -694,8 +700,6 @@ class RelayServer:
             destination = (self.sip_server_ip, self.transf_port)
             sock.sendto(message.encode("utf-8"), destination)
 
-    def _handle_rtp(self, rtp: bytes | str | None = None) -> None: ...
-
     def _build_sdp_offer(self, rtp_port: int) -> str:
         """Build minimal SDP offer for outbound call."""
         import time
@@ -714,6 +718,20 @@ class RelayServer:
             "a=sendrecv",
         ]
         return "\r\n".join(lines) + "\r\n"
+
+    def _handle_rtp(self, rtp: str | None = None) -> None:
+        if rtp is None:
+            raise ValueError("No call_id")
+
+        call_id, base64_string = rtp.split("@")
+        self.logger.info(self.sessions)
+        self.logger.info(call_id)
+
+        session = self.sessions[call_id]
+
+        audio_bytes = WavHandler().b642pcm(base64_string, session.codec_type)
+        for packet in audio_bytes:
+            session.send_audio(packet)
 
 
 if __name__ == "__main__":

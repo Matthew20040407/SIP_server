@@ -1,5 +1,3 @@
-# Code by DHT@Matthew
-
 from enum import StrEnum
 
 from pydantic import BaseModel
@@ -26,43 +24,3 @@ class WebSocketCommand(BaseModel):
             return f"{self.type}:{self.content}"
         else:
             return self.type
-
-
-# class CallCommand(BasicWebSocketCommand):
-#     type: CommandType = CommandType.CALL
-#     content: str
-
-
-# class RPTCommand(BasicWebSocketCommand):
-#     type: CommandType = CommandType.RPT
-#     content: bytes
-
-
-# class CallAnswerCommand(BasicWebSocketCommand):
-#     type: CommandType = CommandType.CALL_ANS
-#     content: None
-
-
-# class CallIgnoreCommand(BasicWebSocketCommand):
-#     type: CommandType = CommandType.CALL_IGNORE
-#     content: None
-
-
-# class HangUpCommand(BasicWebSocketCommand):
-#     type: CommandType = CommandType.HANGUP
-#     content: None
-
-
-# class ByeCommand(BasicWebSocketCommand):
-#     type: CommandType = CommandType.BYE
-#     content: None
-
-
-# class RingAnswerCommand(BasicWebSocketCommand):
-#     type: CommandType = CommandType.RING_ANS
-#     content: None
-
-
-# class RingIgnoreCommand(BasicWebSocketCommand):
-#     type: CommandType = CommandType.RING_IGNORE
-#     content: None
