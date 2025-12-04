@@ -30,7 +30,7 @@ class WebsocketServer:
         self.logger.info("recv_loop STARTED")
         try:
             for message in websocket:
-                self.logger.info(f"Received RAW: {repr(message)}")
+                self.logger.debug(f"Received RAW: {repr(message)}")
 
                 command = self.parser(message=str(message))
                 self._recv_queue.put(command)
