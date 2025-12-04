@@ -303,24 +303,6 @@ Change port or free the process.
 
 ---
 
-## Security Notes
-
-- No authentication
-- No encryption
-- Suitable only for controlled networks
-- Not ready for public deployment
-
----
-
-## Performance
-
-- Supports multiple concurrent calls
-- Threaded RTP processing
-- Efficient, queue-based packet flow
-- Non-blocking socket design
-
----
-
 ## Author
 
 Code by DHT@Matthew
