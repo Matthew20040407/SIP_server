@@ -22,6 +22,19 @@ A Python-based SIP relay server supporting SIP signaling, RTP media handling, an
 - **Dynamic RTP Port Allocation**
 - **Multi-Session Management**
 
+| Command     | Format                             |
+| ----------- | ---------------------------------- |
+| CALL        | CALL:{PHONE_NUMBER}                |
+| RTP         | RTP:{PCM Byte String}              |
+| RTP         | RTP:{CALL_ID}##{BASE64 AUDIO}      |
+| CALL_ANS    | CALL_ANS:{CALL_ID}                 |
+| CALL_IGNORE | CALL_IGNORE:{CALL_ID}              |
+| HANGUP      | HANGUP:{CALL_ID}                   |
+| BYE         | BYE:{CALL_ID}                      |
+| RING_ANS    | RING_ANS:{PHONE_NUMBER}            |
+| RING_IGNORE | RING_IGNORE:{CALL_ID}              |
+| CALL_FAILED | CALL_FAILED:{STATUS_CODE} {REASON} |
+
 ---
 
 ## Architecture Overview
@@ -141,7 +154,7 @@ python receive_server.py
 #### Initiate Outgoing Call
 
 ```WsCommand
-CALL:<phone_number>
+CALL:{phone_number>
 ```
 
 Example:
@@ -153,7 +166,7 @@ CALL:0912341234
 #### Send RTP Audio
 
 ```WsCommand
-RTP:<call_id>##<base64_audio>
+RTP:{call_id>##<base64_audio>
 ```
 
 #### Terminate Call
@@ -166,12 +179,12 @@ BYE
 
 ### Events (server → client)
 
-- `RING_ANS:<phone_number>##<call_id>`
-- `CALL_ANS:<call_id>`
-- `CALL_IGNORE:<call_id>`
-- `CALL_FAILED:<status> <reason>`
-- `BYE:<call_id>`
-- `RTP:<hex_audio_data>`
+- `RING_ANS:{phone_number>##<call_id>`
+- `CALL_ANS:{call_id>`
+- `CALL_IGNORE:{call_id>`
+- `CALL_FAILED:{status> <reason>`
+- `BYE:{call_id>`
+- `RTP:{hex_audio_data>`
 
 ---
 
