@@ -210,7 +210,7 @@ BYE
 - **PCMA (G.711 A-law)** – Payload 8
 - **PCMU (G.711 μ-law)** – Payload 0
 
-### Requirements
+### Audio
 
 - 8000 Hz sample rate
 - Mono
