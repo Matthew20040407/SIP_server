@@ -50,12 +50,6 @@ class RelayServer:
         self.ws_command_helper = WSCommandHelper()
         self._stop_flag = threading.Event()
 
-    def setup_sip_listener(self) -> socket.socket:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind((self.host, self.recv_port))
-        self.logger.info(f"Listening for SIP messages on {self.host}:{self.recv_port}")
-        return sock
-
     def sip_listener_loop(self, host: str, port: int) -> None:
         logger = logging.getLogger("SIPListener")
 
@@ -117,8 +111,7 @@ class RelayServer:
         We handle: INVITE, ACK, BYE
         We ignore: OPTIONS, REGISTER, etc. (for now)
         """
-        self.logger.info(f"Processing message from {addr}: {message[:20]}")
-        self.logger.debug(message)
+        self.logger.debug(f"Processing message from {addr}: {message[:20]}")
 
         try:
             parsed_message = self.sip_message_parser.parse_sip_message(message)
@@ -150,10 +143,6 @@ class RelayServer:
         match request.request_line.method:
             case SIPMethod.INVITE:
                 self._handle_invite(request, call_id, addr, socket)
-                # if self.current_status == CommandType.IDLE:
-                #     self._handle_invite(request, call_id, addr, socket)
-                # else:
-                #     self.logger.warning(f"Current {self.current_status=}")
             case SIPMethod.ACK:
                 self._handle_ack(call_id, addr)
             case SIPMethod.BYE:
@@ -165,8 +154,7 @@ class RelayServer:
                 self._send_response(addr, response, socket)
 
     def ws_message_handler(self, ws_command: WebSocketCommand) -> None:
-        self.logger.info(f"Processing message from WS: {ws_command.type}")
-        self.logger.debug(ws_command.content)
+        self.logger.debug(f"Processing message from WS: {ws_command.type} - {ws_command.content}")
 
         match ws_command.type:
             case CommandType.CALL:
@@ -343,7 +331,6 @@ class RelayServer:
             self.logger.error(f"ACK for unknown call {call_id}")
             return
 
-        # session
         ws_command = self.ws_command_helper.builder(
             CommandType.CALL_ANS, message=call_id
         )
@@ -356,7 +343,6 @@ class RelayServer:
             if wav_path.exists():
                 self.logger.info(f"Playing audio file: {audio_path}")
                 session.start_audio(mode="wav", wav_path=wav_path)
-            # [session.send_audio(b"\x55" * 160) for i in range(999)]
             self.logger.info(f"> Started sending audio for call {call_id}")
 
         except Exception as e:
@@ -418,11 +404,9 @@ class RelayServer:
 
         self.logger.debug(f"Remote SDP: {response.body.model_dump_json(indent=2)}")
 
-        # self.logger.info(response)
         session.create_rtp_handler(response.body)
-        self.logger.info(f"{response.body=}")
-        self.logger.info(f"{session.local_send_port=}")
-        self.logger.info(f"{session.local_recv_port=}")
+        self.logger.debug(f"Response body: {response.body}")
+        self.logger.debug(f"Session ports - send: {session.local_send_port}, recv: {session.local_recv_port}")
 
         session.start_rtp()
         try:
@@ -432,7 +416,6 @@ class RelayServer:
                 self.logger.info(f"Playing audio file: {audio_path}")
                 session.start_audio(mode="wav", wav_path=wav_path)
 
-            # [session.send_audio(b"\x55" * 160) for i in range(999)]
             self.logger.info(f"> Started sending audio for call {call_id}")
 
         except Exception as e:
@@ -598,8 +581,6 @@ class RelayServer:
                 lines.append(f"m={md.media}")
                 lines.append("a=rtpmap:0 PCMA/8000")
 
-                # if md.attributes:
-                #     for attr in md.attributes:
         lines.append("a=sendrecv")
 
         return "\r\n".join(lines) + "\r\n"
@@ -640,8 +621,7 @@ class RelayServer:
             session.local_send_port = send_port
             session.local_recv_port = recv_port
 
-            self.logger.info(session.local_send_port)
-            self.logger.info(session.local_recv_port)
+            self.logger.debug(f"Allocated ports - send: {session.local_send_port}, recv: {session.local_recv_port}")
 
             # Step 2: Build message
             invite_msg = self._build_invite_message(
@@ -729,8 +709,7 @@ class RelayServer:
             raise ValueError("No call_id")
 
         call_id, base64_string = rtp.split("##")
-        self.logger.info(self.sessions)
-        self.logger.info(call_id)
+        self.logger.debug(f"Handling RTP for call {call_id}")
 
         session = self.sessions[call_id]
 

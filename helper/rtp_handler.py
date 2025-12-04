@@ -10,7 +10,6 @@ import time
 import wave
 from pathlib import Path
 
-# from typing import Callable
 from pydub import AudioSegment
 
 from helper.ws_helper import ws_server
@@ -307,12 +306,13 @@ class RTPHandler:
     def __init__(
         self,
         remote_recv_addr: tuple[str, int],
+        local_ip: str = "192.168.1.101",
         local_port: int | None = None,
         ssrc: int = 0x12345678,
         codec: PayloadType = PayloadType.PCMA,
     ) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.sock.bind(("192.168.1.101", local_port))
+        self.sock.bind((local_ip, local_port))
         self.sock.settimeout(1.0)
 
         self.audio_codec = codec
@@ -338,9 +338,7 @@ class RTPHandler:
         if not input_path.exists():
             raise FileNotFoundError(f"Audio file not found: {input_path}")
 
-        # This part can be comment if websocket generate correct wav file
-        #################################################################
-        # convert to mono and 8kHz
+        # Convert to mono and 8kHz
         audio = AudioSegment.from_file(input_path)
         audio = audio.set_channels(1).set_frame_rate(8000)
 
@@ -353,7 +351,6 @@ class RTPHandler:
                     raise ValueError("WAV must be mono")
 
                 all_frames = wav.readframes(wav.getnframes())
-        #################################################################
 
         packets: list[bytes] = []
         offset = 0
