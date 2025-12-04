@@ -18,6 +18,21 @@ from model.ws_command import CommandType
 
 
 class RTPSender:
+    """
+    RTP packet sender with threaded transmission.
+
+    Sends RTP audio packets at 20ms intervals (50 packets/second) to the
+    remote endpoint. Packets are queued for transmission to prevent blocking.
+
+    Attributes:
+        remote_addr: Destination (IP, port) for RTP packets
+        ssrc: Synchronization source identifier (unique per stream)
+        sock: UDP socket for transmission
+        codec: Audio codec (PCMA or PCMU)
+        sequence: RTP sequence number (0-65535, wraps around)
+        timestamp: RTP timestamp (increments by 160 per packet)
+    """
+
     def __init__(
         self,
         remote_addr: tuple[str, int],
@@ -26,6 +41,16 @@ class RTPSender:
         codec: PayloadType,
         local_port: int | None = None,
     ) -> None:
+        """
+        Initialize RTP sender.
+
+        Args:
+            remote_addr: Destination (IP, port) tuple
+            ssrc: Synchronization source identifier
+            sock: UDP socket for sending packets
+            codec: Audio payload type (PCMA or PCMU)
+            local_port: Local port number (optional, for logging)
+        """
         self.logger = logging.getLogger("RTPSender")
 
         if local_port is not None:
@@ -48,10 +73,13 @@ class RTPSender:
 
     def start(self) -> None:
         """
-        Start sender thread.
+        Start the RTP sender thread.
 
-        audio_generator: A function that returns G.711 A-law bytes (160 bytes for 20ms)
-                        Return empty bytes to stop.
+        Begins sending RTP packets at 20ms intervals. Packets are retrieved
+        from the send queue or filled with silence (0xd5) if queue is empty.
+
+        Raises:
+            RuntimeError: If sender is already running or previous thread still alive
         """
         if self._running:
             raise RuntimeError("Sender already running!")
@@ -69,6 +97,12 @@ class RTPSender:
         self._thread.start()
 
     def _send_loop(self) -> None:
+        """
+        Internal send loop running in dedicated thread.
+
+        Continuously sends RTP packets every 20ms (50 packets/second).
+        Updates sequence numbers and timestamps automatically.
+        """
         while self._running:
             try:
                 payload = b"\xd5" * 160
@@ -108,11 +142,22 @@ class RTPSender:
         )
 
     def stop(self) -> None:
+        """
+        Stop the sender thread gracefully.
+
+        Waits up to 1 second for the thread to terminate.
+        """
         self._running = False
         if self._thread:
             self._thread.join(timeout=1.0)
 
     def send_rtp_packet(self, packet: bytes) -> None:
+        """
+        Queue an audio packet for transmission.
+
+        Args:
+            packet: G.711 encoded audio data (160 bytes for 20ms)
+        """
         self._send_queue.put(packet)
 
 
@@ -128,6 +173,13 @@ class RTPReceiver:
     """
 
     def __init__(self, sock: socket.socket, codec: PayloadType):
+        """
+        Initialize RTP receiver.
+
+        Args:
+            sock: UDP socket for receiving RTP packets
+            codec: Audio codec for decoding (PCMA or PCMU)
+        """
         self.logger = logging.getLogger("RTPReceiver")
         self.sock = sock
 
@@ -148,6 +200,15 @@ class RTPReceiver:
         self._recv_queue: queue.Queue[RTPPacket] = queue.Queue()
 
     def start(self) -> None:
+        """
+        Start the RTP receiver thread.
+
+        Begins receiving and processing RTP packets. Received packets
+        are stored in the buffer for WAV export and forwarded to WebSocket.
+
+        Raises:
+            RuntimeError: If receiver is already running or previous thread still alive
+        """
         if self._running:
             raise RuntimeError("Sender already running!")
 
@@ -232,11 +293,24 @@ class RTPReceiver:
         )
 
     def save_wav(self, output_path: Path) -> None:
+        """
+        Export received audio to WAV file.
+
+        Decodes all buffered G.711 packets to PCM and writes a
+        WAV file (8000Hz, stereo, 16-bit).
+
+        Args:
+            output_path: Destination file path for WAV output
+
+        Note:
+            Returns silently if no packets have been received.
+        """
         self.logger.info(f"Saving From buffer: {len(self.recv_buffer)}")
         if not self.recv_buffer:
             return
 
         pcm_data = []
+        # Decode each G.711 packet to PCM
         for buffer_bytes in self.recv_buffer:
             match self.audio_codec:
                 case PayloadType.PCMA:
@@ -251,7 +325,7 @@ class RTPReceiver:
             pcm_data.append(pcm_bytes)
         self.logger.info(f"Saving PCM data: {len(pcm_data)}")
 
-        # Write WAV
+        # Write WAV file
         with wave.open(str(output_path), "wb") as wav:
             wav.setnchannels(2)
             wav.setsampwidth(2)
@@ -262,15 +336,24 @@ class RTPReceiver:
         self.logger.info(f"Saved to {output_path} as {self.audio_codec=}")
 
     def stop(self) -> None:
-        """Graceful shutdown"""
+        """
+        Stop the receiver thread gracefully.
+
+        Waits up to 2 seconds for the thread to terminate.
+        """
         self._running = False
         if self._thread:
             self._thread.join(timeout=2.0)
 
     def _update_stats(self, packet: RTPPacket):
         """
-        Internal statistics tracking.
-        This shows why callback is cleaner than exposing this via API.
+        Track packet statistics and detect packet loss.
+
+        Updates counters for total packets, bytes, and detects
+        sequence number gaps to identify lost packets.
+
+        Args:
+            packet: RTPPacket to process for statistics
         """
         self.stats["total_packets"] += 1
         self.stats["total_bytes"] += len(packet.payload)
@@ -296,6 +379,15 @@ class RTPReceiver:
         return self.stats.copy()
 
     def get_rtp_packet(self, timeout: float = 0.07) -> RTPPacket | None:
+        """
+        Retrieve next RTP packet from receive queue.
+
+        Args:
+            timeout: Maximum time to wait for packet in seconds
+
+        Returns:
+            RTPPacket if available within timeout, None otherwise
+        """
         try:
             return self._recv_queue.get(timeout=timeout)
         except queue.Empty:
@@ -303,6 +395,19 @@ class RTPReceiver:
 
 
 class RTPHandler:
+    """
+    Unified RTP sender and receiver handler.
+
+    Combines RTP transmission and reception on a single UDP socket,
+    with support for WAV file playback and recording.
+
+    Attributes:
+        sock: UDP socket for RTP communication
+        sender: RTP packet sender instance
+        receiver: RTP packet receiver instance
+        audio_codec: Audio codec (PCMA or PCMU)
+    """
+
     def __init__(
         self,
         remote_recv_addr: tuple[str, int],
@@ -311,6 +416,16 @@ class RTPHandler:
         ssrc: int = 0x12345678,
         codec: PayloadType = PayloadType.PCMA,
     ) -> None:
+        """
+        Initialize RTP handler with sender and receiver.
+
+        Args:
+            remote_recv_addr: Remote endpoint (IP, port) for sending RTP
+            local_ip: Local IP address to bind to
+            local_port: Local port to bind to (None = kernel assigned)
+            ssrc: Synchronization source identifier
+            codec: Audio codec (PCMA or PCMU)
+        """
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind((local_ip, local_port))
         self.sock.settimeout(1.0)
@@ -328,11 +443,30 @@ class RTPHandler:
         self.logger.info(f"[RTPHandler] {remote_recv_addr=} {local_port=}")
 
     def start(self) -> None:
+        """
+        Start both RTP sender and receiver threads.
+
+        Begins receiving RTP packets and starts the sender thread
+        which will send packets as they are queued.
+        """
         self.receiver.start()
         self.sender.start()
 
     def send_wav(self, audio_file_path: Path) -> None:
-        """Start sending WAV file (must be 8000Hz mono)"""
+        """
+        Load and send a WAV file as RTP packets.
+
+        The WAV file is automatically converted to 8000Hz mono and
+        encoded with the configured codec (PCMA/PCMU). Audio is sent
+        at 20ms intervals (160 samples per packet).
+
+        Args:
+            audio_file_path: Path to WAV audio file
+
+        Raises:
+            FileNotFoundError: If audio file doesn't exist
+            ValueError: If WAV format validation fails after conversion
+        """
 
         input_path = Path(audio_file_path)
         if not input_path.exists():
@@ -374,17 +508,43 @@ class RTPHandler:
             offset += bytes_per_packet
 
     def save_received_wav(self, output_path: Path) -> None:
-        """Save all received packets to WAV"""
+        """
+        Save all received RTP packets as a WAV file.
+
+        Decodes received G.711 packets to PCM and writes a WAV file
+        at 8000Hz stereo (2 channels, 16-bit).
+
+        Args:
+            output_path: Destination file path for WAV file
+        """
         self.receiver.save_wav(output_path)
 
     def stop(self) -> None:
+        """
+        Stop RTP handler and close socket.
+
+        Gracefully stops both sender and receiver threads,
+        then closes the UDP socket.
+        """
         self.sender.stop()
         self.receiver.stop()
         self.sock.close()
         self.logger.info("Socket closed")
 
     def send_packet(self, packet: bytes) -> None:
+        """
+        Queue a single audio packet for transmission.
+
+        Args:
+            packet: G.711 encoded audio (160 bytes)
+        """
         self.sender.send_rtp_packet(packet)
 
     def recv_packet(self) -> RTPPacket | None:
+        """
+        Retrieve a received RTP packet from the queue.
+
+        Returns:
+            RTPPacket if available, None if queue is empty after timeout
+        """
         return self.receiver.get_rtp_packet()
