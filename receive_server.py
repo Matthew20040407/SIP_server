@@ -308,7 +308,7 @@ class RelayServer:
 
             phone_number = msg.headers.from_.split(" ")[0].replace('"', "")
             ws_command = self.ws_command_helper.builder(
-                CommandType.RING_ANS, message=phone_number
+                CommandType.RING_ANS, message="##".join([phone_number, call_id])
             )
             ws_server.send_message(ws_command)
 
@@ -344,6 +344,11 @@ class RelayServer:
             return
 
         # session
+        ws_command = self.ws_command_helper.builder(
+            CommandType.CALL_ANS, message=call_id
+        )
+        ws_server.send_message(ws_command)
+
         session.start_rtp()
         try:
             audio_path = "./output/transcode/greeting.wav"
@@ -404,7 +409,7 @@ class RelayServer:
                 "",
             ]
         )
-        self.logger.debug(ack_lines)
+        self.logger.info(ack_lines)
         self._send_response(addr, ack_lines, socket)
         ws_command = self.ws_command_helper.builder(
             CommandType.CALL_ANS, message=call_id
@@ -723,7 +728,7 @@ class RelayServer:
         if rtp is None:
             raise ValueError("No call_id")
 
-        call_id, base64_string = rtp.split("@")
+        call_id, base64_string = rtp.split("##")
         self.logger.info(self.sessions)
         self.logger.info(call_id)
 

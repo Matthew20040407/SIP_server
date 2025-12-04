@@ -10,7 +10,7 @@ class WSCommandHelper:
     def __init__(self) -> None:
         self.logger = logging.getLogger("WSCommandParser")
         self.pattern = re.compile(
-            r"(CALL:\d+|RTP:[\w\W]+@[\x00-\xFF]+|CALL_ANS|CALL_IGNORE|HANGUP|BYE|RING_ANS|RING_IGNORE)$"
+            r"(CALL:\d+|RTP:[\w\W]+##[\x00-\xFF]+|CALL_ANS|CALL_IGNORE|HANGUP|BYE|RING_ANS|RING_IGNORE)$"
         )
 
     def parser(self, message: str) -> WebSocketCommand:
@@ -39,10 +39,6 @@ class WSCommandHelper:
                 self.logger.debug("[WS Parser] Match RTP")
 
                 _, packet_string = raw_command.split(":")
-                # if len(rtp_string) % 2 != 0:
-                #     raise ValueError(f"Invalid length {len(rtp_string)=}")
-                # byte_string = bytes.fromhex(rtp_string)
-                # self.logger.debug(byte_string)
 
                 command = WebSocketCommand(type=CommandType.RTP, content=packet_string)
             case s if s.startswith("BYE"):

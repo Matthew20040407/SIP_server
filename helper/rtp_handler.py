@@ -387,25 +387,6 @@ class RTPHandler:
         self.logger.info("Socket closed")
 
     def send_packet(self, packet: bytes) -> None:
-        # offset = 0
-        # bytes_per_packet = 160 * 2
-
-        # while offset < len(packet):
-        #     pcm_bytes = packet[offset : offset + bytes_per_packet]
-        #     if len(pcm_bytes) < bytes_per_packet:
-        #         # Pad last packet with silence
-        #         pcm_bytes += b"\x00\x00" * ((bytes_per_packet - len(pcm_bytes)) // 2)
-
-        #     match self.audio_codec:
-        #         case PayloadType.PCMA:
-        #             alaw_bytes = audioop.lin2alaw(pcm_bytes, 2)
-
-        #         case PayloadType.PCMU:
-        #             alaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
-        #             alaw_bytes = audioop.lin2ulaw(packet, 2)
-
-        #     offset += bytes_per_packet
-        #     self.sender.send_rtp_packet(alaw_bytes)
         self.sender.send_rtp_packet(packet)
 
     def recv_packet(self) -> RTPPacket | None:
