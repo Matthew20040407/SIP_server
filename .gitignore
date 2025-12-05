@@ -12,3 +12,4 @@ wheels/
 .vscode/settings.json
 **test**
 **.log
+.env

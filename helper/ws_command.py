@@ -10,7 +10,7 @@ class WSCommandHelper:
     def __init__(self) -> None:
         self.logger = logging.getLogger("WSCommandParser")
         self.pattern = re.compile(
-            r"(CALL:\d+|RTP:[\w\W]+##[\x00-\xFF]+|CALL_ANS|CALL_IGNORE|HANGUP|BYE|RING_ANS|RING_IGNORE)$"
+            r"(^(CALL|ANS|RING_ANS|RTP|CALL_ANS|CALL_IGNORE|HANGUP|BYE)(:[\w\W]+)?)$"
         )
 
     def parser(self, message: str) -> WebSocketCommand:
@@ -23,7 +23,7 @@ class WSCommandHelper:
             raw_command = m.group(0)
             self.logger.debug(f"[WS Parser] {raw_command=}")
         else:
-            raise Exception("No command found")
+            raise Exception(f"No command found {message}")
 
         match raw_command:
             case s if s.startswith("CALL:"):
@@ -43,18 +43,20 @@ class WSCommandHelper:
                 command = WebSocketCommand(type=CommandType.RTP, content=packet_string)
             case s if s.startswith("BYE"):
                 self.logger.debug("[WS Parser] Match BYE")
-
-                command = WebSocketCommand(type=CommandType.BYE)
+                _, call_info = raw_command.split(":")
+                command = WebSocketCommand(type=CommandType.BYE, content=call_info)
 
             case s if s.startswith("CALL_ANS"):
                 self.logger.debug("[WS Parser] Match CALL_ANS")
-
-                command = WebSocketCommand(type=CommandType.CALL_ANS)
+                _, call_info = raw_command.split(":")
+                command = WebSocketCommand(type=CommandType.CALL_ANS, content=call_info)
 
             case s if s.startswith("CALL_IGNORE"):
                 self.logger.debug("[WS Parser] Match CALL_IGNORE")
-
-                command = WebSocketCommand(type=CommandType.CALL_IGNORE)
+                _, call_info = raw_command.split(":")
+                command = WebSocketCommand(
+                    type=CommandType.CALL_IGNORE, content=call_info
+                )
 
             case s if s.startswith("HANGUP"):
                 self.logger.debug("[WS Parser] Match HANGUP")
@@ -63,13 +65,15 @@ class WSCommandHelper:
 
             case s if s.startswith("RING_ANS"):
                 self.logger.debug("[WS Parser] Match RING_ANS")
-
-                command = WebSocketCommand(type=CommandType.RING_ANS)
+                _, ring_info = raw_command.split(":")
+                command = WebSocketCommand(type=CommandType.RING_ANS, content=ring_info)
 
             case s if s.startswith("RING_IGNORE"):
                 self.logger.debug("[WS Parser] Match RING_IGNORE")
-
-                command = WebSocketCommand(type=CommandType.RING_IGNORE)
+                _, ring_info = raw_command.split(":")
+                command = WebSocketCommand(
+                    type=CommandType.RING_IGNORE, content=ring_info
+                )
 
             case _:
                 raise Exception(f"Invalid command {raw_command}")

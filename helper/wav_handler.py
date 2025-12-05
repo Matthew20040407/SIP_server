@@ -1,6 +1,10 @@
+# Code by DHT@Matthew
+
 import audioop
 import base64
+import wave
 from pathlib import Path
+from uuid import uuid4
 
 from pydub import AudioSegment
 
@@ -20,7 +24,9 @@ class WavHandler:
         return audio.raw_data  # pyright: ignore[reportReturnType]
 
     @staticmethod
-    def _encode_packets(pcm_data: bytes, codec: PayloadType) -> list[bytes]:
+    def _encode_packets(
+        pcm_data: bytes, codec: PayloadType = PayloadType.PCMA
+    ) -> list[bytes]:
         """160 samples/packet @ 8kHz = 20ms"""
         packets = []
         bytes_per_packet = 160 * 2  # 160 samples * 2 bytes
@@ -42,19 +48,52 @@ class WavHandler:
 
         return packets
 
-    def _audio_to_packets(self, audio: AudioSegment, codec: PayloadType) -> list[bytes]:
+    def _audio_to_packets(
+        self, audio: AudioSegment, codec: PayloadType = PayloadType.PCMA
+    ) -> list[bytes]:
         normalized = self._normalize_audio(audio)
         pcm_data = self._get_pcm_data(normalized)
         return self._encode_packets(pcm_data, codec)
 
-    def wav2pcm(self, wav_path: Path, codec: PayloadType) -> list[bytes]:
+    def wav2pcm(
+        self, wav_path: Path, codec: PayloadType = PayloadType.PCMA
+    ) -> list[bytes]:
         audio = AudioSegment.from_file(wav_path)
         return self._audio_to_packets(audio, codec)
+
+    def hex2wav(
+        self, list_of_bytes: list[bytes], codec: PayloadType = PayloadType.PCMA
+    ) -> Path:
+        output_path = Path(f"./output/convented/{uuid4()}.wav")
+
+        pcm_data = []
+        # list_of_pcm = [bytes.fromhex(hex_string) for hex_string in list_of_hex]
+        for buffer_bytes in list_of_bytes:
+            match codec:
+                case PayloadType.PCMA:
+                    pcm_bytes = audioop.alaw2lin(buffer_bytes, 2)
+
+                case PayloadType.PCMU:
+                    pcm_bytes = audioop.ulaw2lin(buffer_bytes, 2)
+
+                case _:
+                    pcm_bytes = audioop.alaw2lin(buffer_bytes, 2)
+
+            pcm_data.append(pcm_bytes)
+
+        with wave.open(str(output_path), "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(8000)
+            for pcm in pcm_data:
+                wav.writeframes(pcm)
+
+        return output_path
 
     def b642pcm(
         self,
         b64_string: str,
-        codec: PayloadType,
+        codec: PayloadType = PayloadType.PCMA,
         sample_rate: int = 8000,
         channels: int = 1,
     ) -> list[bytes]:
@@ -70,7 +109,6 @@ class WavHandler:
         return base64.b64encode(normalized.raw_data).decode("ascii")  # pyright: ignore[reportArgumentType]
 
     def convert_wav(self, input_path: Path, output_path: Path) -> None:
-        """Convert to k8 mono"""
         audio = AudioSegment.from_file(input_path)
         normalized = self._normalize_audio(audio)
         normalized.export(output_path, format="wav")

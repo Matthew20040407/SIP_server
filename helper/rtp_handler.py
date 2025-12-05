@@ -274,7 +274,10 @@ class RTPReceiver:
                 self._update_stats(packet)
 
                 # Step 5: Sent to ws
-                msg = ws_server.builder(CommandType.RTP, message=packet.payload.hex())
+                msg = ws_server.builder(
+                    CommandType.RTP,
+                    message=f"{packet.payload_type}##{packet.payload.hex()}",
+                )
                 ws_server.send_message(msg)
 
             except socket.timeout as e:

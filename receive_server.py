@@ -154,7 +154,9 @@ class RelayServer:
                 self._send_response(addr, response, socket)
 
     def ws_message_handler(self, ws_command: WebSocketCommand) -> None:
-        self.logger.debug(f"Processing message from WS: {ws_command.type} - {ws_command.content}")
+        self.logger.debug(
+            f"Processing message from WS: {ws_command.type} - {ws_command.content}"
+        )
 
         match ws_command.type:
             case CommandType.CALL:
@@ -406,7 +408,9 @@ class RelayServer:
 
         session.create_rtp_handler(response.body)
         self.logger.debug(f"Response body: {response.body}")
-        self.logger.debug(f"Session ports - send: {session.local_send_port}, recv: {session.local_recv_port}")
+        self.logger.debug(
+            f"Session ports - send: {session.local_send_port}, recv: {session.local_recv_port}"
+        )
 
         session.start_rtp()
         try:
@@ -621,7 +625,9 @@ class RelayServer:
             session.local_send_port = send_port
             session.local_recv_port = recv_port
 
-            self.logger.debug(f"Allocated ports - send: {session.local_send_port}, recv: {session.local_recv_port}")
+            self.logger.debug(
+                f"Allocated ports - send: {session.local_send_port}, recv: {session.local_recv_port}"
+            )
 
             # Step 2: Build message
             invite_msg = self._build_invite_message(
@@ -710,7 +716,7 @@ class RelayServer:
 
         call_id, base64_string = rtp.split("##")
         self.logger.debug(f"Handling RTP for call {call_id}")
-
+        self.logger.info(base64_string)
         session = self.sessions[call_id]
 
         audio_bytes = WavHandler().b642pcm(base64_string, session.codec_type)
