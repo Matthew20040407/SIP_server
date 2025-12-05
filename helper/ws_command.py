@@ -33,9 +33,11 @@ class WSCommandHelper:
 
                 # Validate phone number format (support international and Taiwan numbers)
                 # Allow: digits only, optional + prefix, min 7 digits, max 15 digits
-                phone_pattern = r'^\+?\d{7,15}$'
+                phone_pattern = r"^\+?\d{10}$"
                 if not re.match(phone_pattern, phone_number):
-                    raise ValueError(f"Invalid phone number format: {phone_number}. Must be 7-15 digits, optionally starting with +")
+                    raise ValueError(
+                        f"Invalid phone number format: {phone_number}. Must be 7-10 digits"
+                    )
 
                 command = WebSocketCommand(type=CommandType.CALL, content=phone_number)
 

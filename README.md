@@ -177,6 +177,7 @@ python call_center.py
 ```
 
 This mode:
+
 - Connects to the WebSocket server
 - Buffers incoming RTP audio packets
 - Transcribes audio using Whisper
@@ -302,11 +303,13 @@ The system integrates with OpenAI's APIs for AI-powered voice interactions:
 ### Components
 
 - **OpenAiSTT** (`reply_handler.py`)
+
   - Uses Whisper-1 model for speech-to-text
   - Supports multiple languages (default: Chinese)
   - Transcribes audio files to text
 
 - **OpenAiTTS** (`reply_handler.py`)
+
   - Uses GPT-4o-mini-TTS for text-to-speech
   - Multiple voice options (default: alloy)
   - Adjustable speed (0.25-4.0x)
@@ -397,17 +400,21 @@ Change port or free the process.
 ### OpenAI API Issues
 
 **Missing API Key:**
-```
+
+```Error
 ValueError: OPENAI_API_KEY is required
 ```
+
 - Ensure `.env` file exists with valid `OPENAI_API_KEY`
 - Check that the API key is active in your OpenAI account
 
 **Authentication Error:**
+
 - Verify API key is correct and not expired
 - Check OpenAI account has available credits
 
 **Audio Processing Issues:**
+
 - Ensure audio files are in WAV format for transcription
 - Check that `CALL_CENTER_BUFFER_SIZE` is appropriate for your use case
 - Verify network connectivity to OpenAI APIs
