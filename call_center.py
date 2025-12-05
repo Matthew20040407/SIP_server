@@ -1,15 +1,20 @@
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
+from dotenv import load_dotenv
 from websockets.sync.client import connect
 
 from helper.wav_handler import WavHandler
 from helper.ws_command import WSCommandHelper
 from model.rtp import PayloadType
 from model.ws_command import CommandType
+from reply_handler import OpenAiLLM, OpenAiSTT, OpenAiTTS
 
+load_dotenv("./.env")
 ws_cmd = WSCommandHelper()
 wav_handler = WavHandler()
 logger = logging.getLogger()
@@ -23,8 +28,27 @@ logging.basicConfig(
 
 
 class Config:
-    BUFFER_SIZE = 150
+    BUFFER_SIZE = 120
     LOG_INTERVAL = 50
+
+
+class LLMHandler:
+    def __init__(self) -> None:
+        api_key = os.getenv("OPENAI_API_KEY", None)
+
+        if not api_key:
+            raise Exception("No OPENAI_API_KEY")
+
+        self.stt = OpenAiSTT(api_key)
+        self.tts = OpenAiTTS(api_key)
+        self.llm = OpenAiLLM(api_key, model="gpt-4o-mini")
+
+    def transcript(
+        self, audio_input: Path, audio_output: Path, lang: str = "zh"
+    ) -> None:
+        text = self.stt.transcribe(audio_input)
+        reply = self.llm.chat(text)
+        self.tts.speak(reply, output=audio_output)
 
 
 @dataclass
@@ -56,12 +80,9 @@ class RTPSession:
         return data
 
 
-def handle_ai_response(question_wav_path: Path) -> str:
-    return ""
-
-
 def main() -> None:
     session = RTPSession()
+    llm_handler = LLMHandler()
     packet_count = 0
 
     try:
@@ -105,8 +126,11 @@ def main() -> None:
 
                     try:
                         wav_path = wav_handler.hex2wav(session.flush(), session.codec)
-                        wav_data = wav_handler.wav2base64(wav_path)
-                        logger.info(wav_data)
+                        # logger.info(wav_data)
+                        response_audio_path = Path(f"./output/response/{uuid4()}.wav")
+                        llm_handler.transcript(wav_path, response_audio_path)
+                        wav_data = wav_handler.wav2base64(response_audio_path)
+
                         websocket.send(
                             str(
                                 ws_cmd.builder(

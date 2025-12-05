@@ -161,6 +161,6 @@ if __name__ == "__main__":
     print(f"User said: {transcribed}")
     print(f"AI replied: {response}")
 
-    text = stt.transcribe(Path("./message.wav"))
-    reply = llm.chat(text)
-    audio = tts.speak(reply, output=Path("./reply.mp3"))
+    # text = stt.transcribe(Path("./message.wav"))
+    # reply = llm.chat(text)
+    # audio = tts.speak(reply, output=Path("./reply.mp3"))
