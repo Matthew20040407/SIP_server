@@ -330,7 +330,7 @@ class RTPReceiver:
 
         # Write WAV file
         with wave.open(str(output_path), "wb") as wav:
-            wav.setnchannels(2)
+            wav.setnchannels(1)  # Mono (RTP audio is mono)
             wav.setsampwidth(2)
             wav.setframerate(8000)
             for pcm in pcm_data:
@@ -551,3 +551,13 @@ class RTPHandler:
             RTPPacket if available, None if queue is empty after timeout
         """
         return self.receiver.get_rtp_packet()
+
+    def __enter__(self) -> "RTPHandler":
+        """Context manager entry - start RTP handler"""
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - ensure cleanup"""
+        self.stop()
+        return None

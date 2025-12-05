@@ -6,18 +6,23 @@ import threading
 
 from websockets.sync.server import Server, ServerConnection, serve
 
+from config import Config
 from helper.ws_command import WSCommandHelper
 from model.ws_command import WebSocketCommand
 
 
 class WebsocketServer:
-    def __init__(self, host: str = "192.168.1.1", port: int = 8080):
+    def __init__(self, host: str | None = None, port: int | None = None):
         self.logger = logging.getLogger("WebsocketServer")
-        self.host = host
-        self.port = port
+        self.host = host or Config.WS_HOST
+        self.port = port or Config.WS_PORT
 
-        self._send_queue: queue.Queue[WebSocketCommand] = queue.Queue()
-        self._recv_queue: queue.Queue[WebSocketCommand] = queue.Queue()
+        self._send_queue: queue.Queue[WebSocketCommand] = queue.Queue(
+            maxsize=Config.WS_SEND_QUEUE_MAX
+        )
+        self._recv_queue: queue.Queue[WebSocketCommand] = queue.Queue(
+            maxsize=Config.WS_RECV_QUEUE_MAX
+        )
 
         self.ws_server: Server | None = None
         self.running = False
@@ -100,8 +105,14 @@ class WebsocketServer:
         self.logger.info("[WebSocket] server stopped")
 
 
-ws_server = WebsocketServer("192.168.1.101", 8080)
+ws_server = WebsocketServer()
 ws_server.start_ws()
 
 if __name__ == "__main__":
-    ...
+    import time
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        ws_server.stop_ws()

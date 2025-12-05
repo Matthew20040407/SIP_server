@@ -31,8 +31,12 @@ class WSCommandHelper:
 
                 _, phone_number = raw_command.split(":")
 
-                if len(phone_number) != 10:
-                    raise ValueError(f"Invalid length {len(phone_number)=}")
+                # Validate phone number format (support international and Taiwan numbers)
+                # Allow: digits only, optional + prefix, min 7 digits, max 15 digits
+                phone_pattern = r'^\+?\d{7,15}$'
+                if not re.match(phone_pattern, phone_number):
+                    raise ValueError(f"Invalid phone number format: {phone_number}. Must be 7-15 digits, optionally starting with +")
+
                 command = WebSocketCommand(type=CommandType.CALL, content=phone_number)
 
             case s if s.startswith("RTP:"):

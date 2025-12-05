@@ -134,13 +134,8 @@ class VoicePipeline:
         return transcribed, response_text, audio_bytes
 
 
-class RTPMessageBuffer:
-    def __init__(self) -> None:
-        pass
-
-
 if __name__ == "__main__":
-    load_dotenv("./env")
+    load_dotenv("./.env")
     api_key = os.getenv("OPENAI_API_KEY", None)
 
     if not api_key:
