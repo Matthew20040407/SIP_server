@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from secrets import randbelow, randbits
 
-# from typing import Callable
 from helper.rtp_handler import RTPHandler
 from model.rtp import PayloadType
 from model.sip_message import MediaDescription, SDPMessage, TimeDescription

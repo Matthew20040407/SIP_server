@@ -61,13 +61,12 @@ class WavHandler:
         audio = AudioSegment.from_file(wav_path)
         return self._audio_to_packets(audio, codec)
 
-    def hex2wav(
-        self, list_of_bytes: list[bytes], codec: PayloadType = PayloadType.PCMA
-    ) -> Path:
-        output_path = Path(f"./output/convented/{uuid4()}.wav")
-
+    def hex2pcm(
+        self,
+        list_of_bytes: list[bytes],
+        codec: PayloadType = PayloadType.PCMA,
+    ) -> list[bytes]:
         pcm_data = []
-        # list_of_pcm = [bytes.fromhex(hex_string) for hex_string in list_of_hex]
         for buffer_bytes in list_of_bytes:
             match codec:
                 case PayloadType.PCMA:
@@ -80,6 +79,21 @@ class WavHandler:
                     pcm_bytes = audioop.alaw2lin(buffer_bytes, 2)
 
             pcm_data.append(pcm_bytes)
+        return pcm_data
+
+    def hex2wav(
+        self,
+        list_of_bytes: list[bytes],
+        codec: PayloadType = PayloadType.PCMA,
+        output_wav_path: Path | None = None,
+    ) -> Path:
+        output_path = (
+            output_wav_path
+            if output_wav_path and output_wav_path.exists()
+            else Path(f"./output/convented/{uuid4()}.wav")
+        )
+
+        pcm_data = self.hex2pcm(list_of_bytes, codec)
 
         with wave.open(str(output_path), "wb") as wav:
             wav.setnchannels(1)
