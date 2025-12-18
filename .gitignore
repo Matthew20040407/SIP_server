@@ -14,3 +14,4 @@ wheels/
 **.log
 .env
 !greeting.wav
+voice_models/
