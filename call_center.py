@@ -132,11 +132,12 @@ def main() -> None:
                             f"Processing failed for call {session.call_id}: {e}"
                         )
                         session.buffer.clear()
-                    # finally:
-                    #     if wav_path and wav_path.exists():
-                    #         wav_path.unlink()
-                    #     if response_audio_path and response_audio_path.exists():
-                    #         response_audio_path.unlink()
+                    finally:
+                        logging.info("Cleaning up temporary files")
+                        if wav_path and wav_path.exists():
+                            wav_path.unlink()
+                        if response_audio_path and response_audio_path.exists():
+                            response_audio_path.unlink()
 
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
