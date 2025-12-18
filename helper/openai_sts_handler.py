@@ -5,6 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from PROMPT import SYSTEM_PROMPT
 
 
 class OpenAiSTT:
@@ -27,8 +28,6 @@ class OpenAiSTT:
 
 
 class OpenAiTTS:
-    """Text-to-Speech using OpenAI's TTS API"""
-
     def __init__(
         self, api_key: str, model: str = "gpt-4o-mini-tts", voice: str = "alloy"
     ):
@@ -71,10 +70,9 @@ class OpenAiLLM:
             raise ValueError("API key cannot be empty")
         self._client = OpenAI(api_key=api_key)
         self._model = model
+        self.system_prompt = SYSTEM_PROMPT
 
-    def chat(
-        self, message: str, system_prompt: str = "use one sentence to summarize"
-    ) -> str:
+    def chat(self, message: str, system_prompt: str) -> str:
         if not message:
             raise ValueError("Message cannot be empty")
 

@@ -35,17 +35,18 @@ class WebsocketServer:
 
     def recv_loop(self, websocket: ServerConnection) -> None:
         self.logger.info("recv_loop STARTED")
-        try:
-            for message in websocket:
+        for message in websocket:
+            try:
                 self.logger.debug(f"Received RAW: {repr(message)}")
 
                 command = self.parser(message=str(message))
                 self._recv_queue.put(command)
                 self.status["recv"] += 1
-        except Exception as e:
-            self.logger.error(f"recv_loop CRASHED: {e}", exc_info=True)
-        finally:
-            self.logger.info("recv_loop ENDED")
+            except ValueError as ve:
+                self.logger.warning(f"recv_loop ValueError: {ve}")
+            except Exception as e:
+                self.logger.error(f"recv_loop CRASHED: {e}", exc_info=True)
+        self.logger.info("recv_loop STOPPED")
 
     def send_loop(self, websocket: ServerConnection) -> None:
         while self.running:

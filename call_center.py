@@ -8,34 +8,18 @@ from uuid import uuid4
 from websockets.sync.client import connect
 
 from config import Config
+from helper.custom_sts_handler import LLM, Speech2Text, Text2Speech
+from helper.PROMPT import SYSTEM_PROMPT
 from helper.wav_handler import WavHandler
 from helper.ws_command import WSCommandHelper
 from model.rtp import PayloadType
 from model.ws_command import CommandType
-from reply_handler import OpenAiLLM, OpenAiSTT, OpenAiTTS
+
+# from helper.openai_handler import OpenAiLLM, OpenAiSTT, OpenAiTTS
 
 ws_cmd = WSCommandHelper()
 wav_handler = WavHandler()
 logger = logging.getLogger()
-
-
-class LLMHandler:
-    def __init__(self) -> None:
-        api_key = os.getenv("OPENAI_API_KEY", None)
-
-        if not api_key:
-            raise Exception("No OPENAI_API_KEY")
-
-        self.stt = OpenAiSTT(api_key)
-        self.tts = OpenAiTTS(api_key)
-        self.llm = OpenAiLLM(api_key, model="gpt-4o-mini")
-
-    def transcript(self, audio_input: Path, audio_output: Path) -> None:
-        text = self.stt.transcribe(audio_input)
-        logger.info(f"User: {text}")
-        reply = self.llm.chat(text)
-        logger.info(f"AI: {reply}")
-        self.tts.speak(reply, output=audio_output)
 
 
 @dataclass
@@ -69,10 +53,13 @@ class RTPSession:
 
 def main() -> None:
     session = RTPSession()
-    llm_handler = LLMHandler()
+    llm_handler = LLM(SYSTEM_PROMPT)
+    stt = Speech2Text()
+    tts = Text2Speech()
+
+    logger.info("LLM and STT/TTS initialized")
     packet_count = 0
     ws_url = os.getenv("WS_URL", "ws://192.168.1.101:8080")
-
     try:
         with connect(ws_url) as websocket:
             logger.info("WebSocket connected")
@@ -118,12 +105,19 @@ def main() -> None:
                     logger.info(f"Processed {packet_count} packets")
 
                     wav_path = None
-                    response_audio_path = None
+                    response_audio_path = Path(f"./output/response/{uuid4()}.wav")
                     try:
                         wav_path = wav_handler.hex2wav(session.flush(), session.codec)
-                        response_audio_path = Path(f"./output/response/{uuid4()}.wav")
-                        llm_handler.transcript(wav_path, response_audio_path)
+                        logger.info(f"WAV file converted at {wav_path}")
+
+                        audio_transcribe, language = stt.transcribe(wav_path)
+                        llm_response = llm_handler.generate_response(
+                            audio_transcribe, language
+                        )
+                        logger.info(f"LLM Response: {llm_response}")
+                        tts.generate(llm_response, response_audio_path, language)
                         wav_data = wav_handler.wav2base64(response_audio_path)
+                        logger.info(f"WAV data: {wav_data[:30]}...")
 
                         websocket.send(
                             str(
@@ -132,16 +126,17 @@ def main() -> None:
                                 )
                             )
                         )
+                        logger.info("Audio sent")
                     except Exception as e:
                         logger.error(
                             f"Processing failed for call {session.call_id}: {e}"
                         )
                         session.buffer.clear()
-                    finally:
-                        if wav_path and wav_path.exists():
-                            wav_path.unlink()
-                        if response_audio_path and response_audio_path.exists():
-                            response_audio_path.unlink()
+                    # finally:
+                    #     if wav_path and wav_path.exists():
+                    #         wav_path.unlink()
+                    #     if response_audio_path and response_audio_path.exists():
+                    #         response_audio_path.unlink()
 
     except KeyboardInterrupt:
         logger.info("Interrupted by user")

@@ -14,21 +14,7 @@ from transformers import (
     AutoTokenizer,  # type: ignore[reportPrivateImportUsage]
 )
 
-PROMPT = """
-# AI 助理聊天機器人核心指令
-
-你是一個 AI 助理聊天機器人。你來自 DHT Solution 的呼叫中心聊天機器人，你的名字是DD
-
-### **通用行為準則**
-1.  **首要任務**: 你的核心職責是完成「附加指令」和「今日特別任務」中定義的目標。請主動、自然地引導對話以達成這些目標。若無特定任務，則專注於高效解答用戶問題。
-2.  **極度簡潔**: 為了保證語音對話的流暢性，每一句回覆都應簡潔明瞭，盡量不超過250字。
-3.  **語言跟隨**: 嚴格使用用戶**上一句話**的語言進行回覆，除非用戶明確要求翻譯。
-4.  **語音容錯**: 用戶的語音輸入可能不準確。請根據上下文盡力推斷其真實意圖。
-
-### **應對策略**
-*   **不確定時**: 禮貌地請求用戶澄清。例：「不好意思，我不太確定您的意思，可以請您換個方式說嗎？」
-*   **有把握時**: 大膽預測並直接回答，同時可加上引導性確認。例：「聽起來您是想了解預約流程，是嗎？流程是這樣的...」
-"""
+from helper.PROMPT import SYSTEM_PROMPT
 
 
 class Speech2Text:
@@ -57,11 +43,11 @@ class Speech2Text:
 
     def transcribe(
         self,
-        audio_path: str,
+        audio_path: str | Path,
         beam_size: int = 5,
         vad_filter: bool = True,
         language: str | None = None,
-    ) -> str:
+    ) -> tuple[str, str]:
         """
         Convert audio to text.
 
@@ -86,7 +72,10 @@ class Speech2Text:
         start_time = time.time()
 
         segments, info = self.model.transcribe(
-            audio_path, beam_size=beam_size, vad_filter=vad_filter, language=language
+            str(audio_path),
+            beam_size=beam_size,
+            vad_filter=vad_filter,
+            language=language,
         )
 
         text = "".join(segment.text for segment in segments)
@@ -97,7 +86,7 @@ class Speech2Text:
             f"(language: {info.language}, probability: {info.language_probability:.2f})"
         )
 
-        return text
+        return text, info.language
 
     def transcribe_detailed(
         self,
@@ -181,8 +170,11 @@ class LLM:
         self.past_key_values = None
         self.cached_token_count = 0
 
-    def generate_response(self, user_input: str):
-        self.history.append({"role": "user", "content": "/no_think" + user_input})
+    def generate_response(self, user_input: str, language: str = "zh") -> str:
+        query = (
+            f"/no_think\n您必須使用此語言進行輸出:{language} \n用戶提問:" + user_input
+        )
+        self.history.append({"role": "user", "content": query})
 
         messages = self.history.copy()
         text = self.tokenizer.apply_chat_template(
@@ -233,8 +225,6 @@ class LLM:
 
 
 class Text2Speech:
-    """多語言 TTS，使用 langid 進行語言檢測"""
-
     VOICE_MAP = {
         "en": "./voices/en/en_US-lessac-medium.onnx",
         "zh": "./voices/zh/zh_CN-huayan-medium.onnx",
@@ -295,33 +285,35 @@ class Text2Speech:
         return self._voices[lang]
 
     def generate(
-        self, text: str, output_path: str, lang: str | None = None
+        self, text: str, output_path: str | Path, lang: str | None = None
     ) -> tuple[str, float]:
         confidence = 1.0
 
         if lang is None:
             lang, confidence = self.detect_language(text)
         elif lang not in self.VOICE_MAP:
-            raise ValueError(
-                f"Unsupported Lang: {lang}, Supported: {list(self.VOICE_MAP.keys())}"
+            self.logger.warning(
+                f"Unsupported language got: {lang}, using default: {self.default_lang}."
             )
+            lang = self.default_lang
 
         self.logger.info(f"Synthesizing in {lang} (confidence: {confidence:.2f})...")
         voice = self._get_voice(lang)
-        with wave.open(output_path, "wb") as f:
+        with wave.open(str(output_path), "wb") as f:
             voice.synthesize_wav(text, f)
 
+        self.logger.info(f"TTS audio saved to: {output_path}")
         return lang, confidence
 
 
 if __name__ == "__main__":
     stt = Speech2Text()
-    llm = LLM(system_prompt=PROMPT)
+    llm = LLM(system_prompt=SYSTEM_PROMPT)
     tts = Text2Speech()
 
     print("Start testing...")
     st_time = time.time()
-    incoming_voice = stt.transcribe("./audio.wav")
+    incoming_voice, _ = stt.transcribe("./audio.wav")
     print(f"Transcription time: {time.time() - st_time:.2f}s")
 
     st_time = time.time()

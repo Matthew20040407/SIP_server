@@ -8,11 +8,11 @@ import time
 import uuid
 from pathlib import Path
 
-from config import Config
 from helper.sip_parsers import SipMessageParser
 from helper.sip_session import SIPRTPSession
 from helper.wav_handler import WavHandler
 from helper.ws_command import WSCommandHelper
+from helper.ws_helper import ws_server
 from model.sip_message import SDPMessage, SIPMethod, SIPRequest, SIPResponse
 from model.ws_command import CommandType, WebSocketCommand
 
@@ -20,31 +20,28 @@ from model.ws_command import CommandType, WebSocketCommand
 class RelayServer:
     def __init__(
         self,
-        host: str | None = None,
-        transf_port: int | None = None,
-        recv_port: int | None = None,
-        local_ip: str | None = None,
-        sip_server_ip: str | None = None,
-        ws_server=None,
+        host: str = "192.168.1.101",
+        transf_port: int = 5060,
+        recv_port: int = 5062,
+        local_ip: str = "192.168.1.101",
+        sip_server_ip: str = "192.168.1.170",
     ):
-        self.host = host or Config.SIP_LOCAL_IP
-        self.recv_port = recv_port or Config.SIP_LOCAL_PORT
-        self.transf_port = transf_port or Config.SIP_TRANSFER_PORT
-        self.local_ip = local_ip or Config.SIP_LOCAL_IP
-        self.sip_server_ip = sip_server_ip or Config.SIP_SERVER_IP
-        self.ws_server = ws_server
+        self.host = host
+        self.recv_port = recv_port
+        self.transf_port = transf_port
+        self.local_ip = local_ip
+        self.sip_server_ip = sip_server_ip
 
         self.logger = logging.getLogger("SIPServer")
-        if not self.logger.handlers:
-            logging.basicConfig(
-                level=getattr(logging, Config.LOG_LEVEL),
-                format="[%(levelname)s] - %(asctime)s - %(message)s - %(pathname)s:%(lineno)d",
-                filemode="a",
-                filename=Config.SIP_LOG_FILE,
-                datefmt="%y-%m-%d %H:%M:%S",
-            )
-            console_handler = logging.StreamHandler(sys.stdout)
-            self.logger.addHandler(console_handler)
+        logging.basicConfig(
+            level=logging.INFO,
+            format="[%(levelname)s] - %(asctime)s - %(message)s - %(pathname)s:%(lineno)d",
+            filemode="w+",
+            filename="sip_server.log",
+            datefmt="%y-%m-%d %H:%M:%S",
+        )
+        console_handler = logging.StreamHandler(sys.stdout)
+        self.logger.addHandler(console_handler)
 
         self.sip_message_parser = SipMessageParser()
 
@@ -52,27 +49,6 @@ class RelayServer:
 
         self.ws_command_helper = WSCommandHelper()
         self._stop_flag = threading.Event()
-
-        # Ensure recording directory exists and cleanup old files
-        Config.RECORDING_DIR.mkdir(parents=True, exist_ok=True)
-        self._cleanup_old_recordings()
-
-    def _cleanup_old_recordings(self) -> None:
-        """Remove recording files older than MAX_RECORDING_AGE_DAYS"""
-        try:
-            cutoff_time = time.time() - (Config.MAX_RECORDING_AGE_DAYS * 86400)
-            deleted_count = 0
-
-            for recording_file in Config.RECORDING_DIR.glob("*.wav"):
-                if recording_file.stat().st_mtime < cutoff_time:
-                    recording_file.unlink()
-                    deleted_count += 1
-
-            if deleted_count > 0:
-                self.logger.info(f"Cleaned up {deleted_count} old recording files")
-
-        except Exception as e:
-            self.logger.error(f"Failed to cleanup old recordings: {e}")
 
     def sip_listener_loop(self, host: str, port: int) -> None:
         logger = logging.getLogger("SIPListener")
@@ -84,10 +60,9 @@ class RelayServer:
 
         while not self._stop_flag.is_set():
             try:
-                if self.ws_server:
-                    ws_message = self.ws_server.get_message()
-                    if ws_message:
-                        self.ws_message_handler(ws_message)
+                ws_message = ws_server.get_message()
+                if ws_message:
+                    self.ws_message_handler(ws_message)
 
             except KeyboardInterrupt:
                 break
@@ -233,9 +208,7 @@ class RelayServer:
                 ws_command = self.ws_command_helper.builder(
                     CommandType.CALL_IGNORE, message=call_id
                 )
-                if not self.ws_server:
-                    return
-                self.ws_server.send_message(ws_command)
+                ws_server.send_message(ws_command)
 
             elif status_code == 183:
                 self.logger.info(f"Call {call_id}: Session Progress (early media)")
@@ -265,8 +238,7 @@ class RelayServer:
             ws_command = self.ws_command_helper.builder(
                 CommandType.CALL_FAILED, message=f"{status_code} {reason}"
             )
-            if self.ws_server:
-                self.ws_server.send_message(ws_command)
+            ws_server.send_message(ws_command)
 
     def _handle_invite(
         self,
@@ -328,8 +300,7 @@ class RelayServer:
             ws_command = self.ws_command_helper.builder(
                 CommandType.RING_ANS, message="##".join([phone_number, call_id])
             )
-            if self.ws_server:
-                self.ws_server.send_message(ws_command)
+            ws_server.send_message(ws_command)
 
             self.logger.info(f"> Sent 200 OK to {addr}")
 
@@ -365,8 +336,7 @@ class RelayServer:
         ws_command = self.ws_command_helper.builder(
             CommandType.CALL_ANS, message=call_id
         )
-        if self.ws_server:
-            self.ws_server.send_message(ws_command)
+        ws_server.send_message(ws_command)
 
         session.start_rtp()
         try:
@@ -432,8 +402,7 @@ class RelayServer:
         ws_command = self.ws_command_helper.builder(
             CommandType.CALL_ANS, message=call_id
         )
-        if self.ws_server:
-            self.ws_server.send_message(ws_command)
+        ws_server.send_message(ws_command)
 
         self.logger.debug(f"Remote SDP: {response.body.model_dump_json(indent=2)}")
 
@@ -498,8 +467,7 @@ class RelayServer:
             ws_command = self.ws_command_helper.builder(
                 CommandType.BYE, message=call_id
             )
-            if self.ws_server:
-                self.ws_server.send_message(ws_command)
+            ws_server.send_message(ws_command)
             self.logger.info(f"> Call {call_id} terminated")
 
         except Exception as e:
@@ -532,8 +500,7 @@ class RelayServer:
         ws_command = self.ws_command_helper.builder(
             CommandType.RING_IGNORE, message=call_id
         )
-        if self.ws_server:
-            self.ws_server.send_message(ws_command)
+        ws_server.send_message(ws_command)
 
     def _build_response(self, request: SIPRequest | SIPResponse, status: str) -> str:
         """
@@ -748,8 +715,9 @@ class RelayServer:
             raise ValueError("No call_id")
 
         call_id, base64_string = rtp.split("##")
-        self.logger.debug(f"Handling RTP for call {call_id}")
-        self.logger.debug(f"{base64_string=}")
+        self.logger.info(f"Handling RTP for call {call_id}")
+        self.logger.info(f"{base64_string[:30]=}")
+        self.logger.debug(base64_string)
         session = self.sessions[call_id]
 
         audio_bytes = WavHandler().b642pcm(base64_string, session.codec_type)

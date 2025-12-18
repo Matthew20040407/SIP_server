@@ -23,7 +23,7 @@ class WSCommandHelper:
             raw_command = m.group(0)
             self.logger.debug(f"[WS Parser] {raw_command=}")
         else:
-            raise Exception(f"No command found {message}")
+            raise ValueError(f"No command found {message}")
 
         match raw_command:
             case s if s.startswith("CALL:"):
