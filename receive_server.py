@@ -33,15 +33,6 @@ class RelayServer:
         self.sip_server_ip = sip_server_ip
 
         self.logger = logging.getLogger("SIPServer")
-        logging.basicConfig(
-            level=logging.INFO,
-            format="[%(levelname)s] - %(asctime)s - %(message)s - %(pathname)s:%(lineno)d",
-            filemode="w+",
-            filename="sip_server.log",
-            datefmt="%y-%m-%d %H:%M:%S",
-        )
-        console_handler = logging.StreamHandler(sys.stdout)
-        self.logger.addHandler(console_handler)
 
         self.sip_message_parser = SipMessageParser()
 
@@ -726,6 +717,17 @@ class RelayServer:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(levelname)s] - %(asctime)s - %(message)s - %(pathname)s:%(lineno)d",
+        filemode="w+",
+        filename="sip_server.log",
+        datefmt="%y-%m-%d %H:%M:%S",
+    )
+    console_handler = logging.StreamHandler(sys.stdout)
+    logger = logging.getLogger()
+    logger.addHandler(console_handler)
+
     server = RelayServer()
     server_process = server.start()
 

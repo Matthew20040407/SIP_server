@@ -13,3 +13,4 @@ wheels/
 **test**
 **.log
 .env
+!greeting.wav
