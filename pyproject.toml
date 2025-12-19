@@ -17,6 +17,7 @@ dependencies = [
   "pydantic>=2.12.4",
   "pydub>=0.25.1",
   "python-dotenv>=1.2.1",
+  "silero-vad>=6.2.0",
   "transformers>=4.51.3",
   "websockets>=15.0.1",
 ]

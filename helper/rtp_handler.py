@@ -90,8 +90,7 @@ class RTPSender:
         self._running = True
         self._thread = threading.Thread(
             target=self._send_loop,
-            # args=(audio_generator,),
-            name="RTPSender",  # Thread name for debugging
+            name="RTPSender",
         )
         self._thread.daemon = True  # Die with main thread
         self._thread.start()
@@ -105,10 +104,8 @@ class RTPSender:
         """
         while self._running:
             try:
-                payload = b"\xd5" * 160
-
                 try:
-                    payload = self._send_queue.get()
+                    payload = self._send_queue.get(block=True, timeout=0.02)
                 except queue.Empty:
                     payload = b"\xd5" * 160
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
+import webrtcvad
 from websockets.sync.client import connect
 
 from config import Config
@@ -35,20 +36,43 @@ class RTPPacket:
 
 
 class RTPSession:
-    def __init__(self):
+    def __init__(
+        self,
+        vad_mode: int = 0,
+        sample_rate: int = 8000,
+        frame_duration_ms: int = 20,
+    ):
         self.call_id: str = ""
+        self.sample_rate: int = sample_rate
+        self.frame_duration_ms = frame_duration_ms
         self.codec: PayloadType = PayloadType.PCMA
+        self.samples_per_frame = (sample_rate * frame_duration_ms) // 1000
+
         self.buffer: list[RTPPacket] = []
 
+        self.vad = webrtcvad.Vad(vad_mode)
+        self.minimum_number_packet = 50
+
     def add_packet(self, packet: RTPPacket) -> bool:
-        self.buffer.append(packet)
-        logger.debug(len(self.buffer))
-        return len(self.buffer) >= Config.CALL_CENTER_BUFFER_SIZE
+        pcm_data = wav_handler.hex2pcm([packet.data])
+
+        is_speech_frame = self.vad.is_speech(b"".join(pcm_data), self.sample_rate)
+        logger.debug(f"{is_speech_frame=} {pcm_data[0][:20]=}")
+        if is_speech_frame:
+            self.buffer.append(packet)
+            logger.info(f"number of packet {len(self.buffer)}")
+        else:
+            if len(self.buffer) >= self.minimum_number_packet:
+                return True
+        return False
 
     def flush(self) -> list[bytes]:
         data = [p.data for p in self.buffer]
-        self.buffer.clear()
+        self.clear()
         return data
+
+    def clear(self) -> None:
+        self.buffer.clear()
 
 
 def main() -> None:
@@ -77,7 +101,7 @@ def main() -> None:
                     continue
 
                 if cmd.type == CommandType.CALL_ANS:
-                    session.buffer.clear()
+                    session.clear()
                     session.call_id = cmd.content
                     logger.info(f"Call started: {session.call_id}")
                     continue
@@ -97,8 +121,16 @@ def main() -> None:
                         f"Malformed RTP packet for call {session.call_id}, packet count {packet_count}: {e}"
                     )
                     continue
+                except Exception as e:
+                    logger.error(
+                        f"Unexpected error: {e}",
+                        exc_info=True,
+                    )
+                    continue
 
                 session.codec = packet.payload_type
+                if session.call_id == "":
+                    continue
 
                 if session.add_packet(packet):
                     packet_count += Config.CALL_CENTER_BUFFER_SIZE
@@ -131,7 +163,7 @@ def main() -> None:
                         logger.error(
                             f"Processing failed for call {session.call_id}: {e}"
                         )
-                        session.buffer.clear()
+                        session.clear()
                     finally:
                         logging.info("Cleaning up temporary files")
                         if wav_path and wav_path.exists():

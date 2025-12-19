@@ -76,7 +76,7 @@ class WavHandler:
                     pcm_bytes = audioop.ulaw2lin(buffer_bytes, 2)
 
                 case _:
-                    pcm_bytes = audioop.alaw2lin(buffer_bytes, 2)
+                    raise ValueError(f"Unsupported codec: {codec}")
 
             pcm_data.append(pcm_bytes)
         return pcm_data
@@ -87,20 +87,17 @@ class WavHandler:
         codec: PayloadType = PayloadType.PCMA,
         output_wav_path: Path | None = None,
     ) -> Path:
-        output_path = (
-            output_wav_path
-            if output_wav_path and output_wav_path.exists()
-            else Path(f"./output/convented/{uuid4()}.wav")
+        output_path = output_path = output_wav_path or Path(
+            f"./output/converted/{uuid4()}.wav"
         )
 
-        pcm_data = self.hex2pcm(list_of_bytes, codec)
+        pcm_data = b"".join(self.hex2pcm(list_of_bytes, codec))
 
         with wave.open(str(output_path), "wb") as wav:
             wav.setnchannels(1)
             wav.setsampwidth(2)
             wav.setframerate(8000)
-            for pcm in pcm_data:
-                wav.writeframes(pcm)
+            wav.writeframes(pcm_data)
 
         return output_path
 
