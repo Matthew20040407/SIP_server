@@ -51,6 +51,13 @@ class RelayServer:
 
         while not self._stop_flag.is_set():
             try:
+                # Update VAD state for all active sessions
+                for call_id, session in list(self.sessions.items()):
+                    try:
+                        session.update_sending_state()
+                    except Exception as e:
+                        logger.error(f"Error updating VAD for {call_id}: {e}")
+
                 ws_message = ws_server.get_message()
                 if ws_message:
                     self.ws_message_handler(ws_message)

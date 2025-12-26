@@ -60,7 +60,7 @@ class RTPSession:
         logger.debug(f"{is_speech_frame=} {pcm_data[0][:20]=}")
         if is_speech_frame:
             self.buffer.append(packet)
-            logger.info(f"number of packet {len(self.buffer)}")
+            logger.debug(f"number of packet {len(self.buffer)}")
         else:
             if len(self.buffer) >= self.minimum_number_packet:
                 return True

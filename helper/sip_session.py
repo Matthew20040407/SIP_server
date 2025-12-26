@@ -369,14 +369,14 @@ class SIPRTPSession:
 
         self.rtp_handle.send_packet(audio_data)
 
-    def recv_audio(self) -> bytes | None:
-        if not self.rtp_handle:
-            raise RuntimeError("Call handle_invite() first")
+    # def recv_audio(self) -> bytes | None:
+    #     if not self.rtp_handle:
+    #         raise RuntimeError("Call handle_invite() first")
 
-        audio_packet = self.rtp_handle.recv_packet()
-        if audio_packet:
-            return audio_packet.payload
-        return
+    #     audio_packet = self.rtp_handle.recv_packet()
+    #     if audio_packet:
+    #         return audio_packet.payload
+    #     return
 
     def stop_and_save(self, output_path: Path | None = None):
         """
@@ -439,6 +439,14 @@ class SIPRTPSession:
             # self.rtp_handle.start_sending_dummy()
         else:
             raise ValueError(f"Unknown mode: {mode}. Use 'dummy' or 'wav'")
+
+    def update_sending_state(self) -> None:
+        if not self.rtp_handle:
+            raise RuntimeError("Call handle_invite() first")
+
+        self.logger.debug(f"{self.rtp_handle.sender.get_send_queue().qsize()=}")
+        self.logger.debug(f"{self.rtp_handle.receiver.get_recv_queue().qsize()=}")
+        self.rtp_handle.update_sending_state()
 
     def __str__(self) -> str:
         return "\n".join(

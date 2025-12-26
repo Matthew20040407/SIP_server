@@ -8,13 +8,62 @@ import tempfile
 import threading
 import time
 import wave
+from collections import deque
 from pathlib import Path
 
+import numpy as np
+import torch
 from pydub import AudioSegment
+from silero_vad import load_silero_vad
 
 from helper.ws_helper import ws_server
 from model.rtp import PayloadType, RTPPacket
 from model.ws_command import CommandType
+
+
+class VADHandler:
+    def __init__(self, vad_model, sample_rate=8000, vad_chunk_size=256):
+        self.logger = logging.getLogger("VADHandler")
+        self.vad = vad_model
+        self.sample_rate = sample_rate
+        self.vad_chunk_size = vad_chunk_size
+
+        self.window = deque(maxlen=vad_chunk_size)
+
+        self.speech_count = 0
+        self.silence_count = 0
+        self.threshold_frames = 2
+
+        self.is_speaking = False
+
+    def process_packet(self, pcm_bytes: bytes) -> bool:
+        audio_np = np.frombuffer(pcm_bytes, dtype=np.int16)
+        audio_float = audio_np.astype(np.float32) / 32768.0
+
+        self.window.extend(audio_float)
+
+        if len(self.window) < self.vad_chunk_size:
+            return self.is_speaking
+
+        vad_input = torch.tensor(list(self.window), dtype=torch.float32)
+
+        speech_prob = self.vad(vad_input, self.sample_rate)
+        self.logger.info(f"[VAD] speech probability: {speech_prob.item():.4f}")
+        has_speech = speech_prob > 0.5
+
+        if has_speech:
+            self.speech_count += 1
+            self.silence_count = 0
+        else:
+            self.silence_count += 1
+            self.speech_count = 0
+
+        if self.speech_count >= self.threshold_frames:
+            self.is_speaking = True
+        elif self.silence_count >= self.threshold_frames:
+            self.is_speaking = False
+
+        return self.is_speaking
 
 
 class RTPSender:
@@ -70,6 +119,7 @@ class RTPSender:
         self._thread: threading.Thread | None = None
 
         self._send_queue: queue.Queue[bytes] = queue.Queue()
+        self._paused = False  # Voice activity detection control
 
     def start(self) -> None:
         """
@@ -101,13 +151,23 @@ class RTPSender:
 
         Continuously sends RTP packets every 20ms (50 packets/second).
         Updates sequence numbers and timestamps automatically.
+        When paused (user speaking), sends silence and clears the queue.
         """
         while self._running:
             try:
-                try:
-                    payload = self._send_queue.get(block=True, timeout=0.02)
-                except queue.Empty:
+                if self._paused:
+                    while not self._send_queue.empty():
+                        try:
+                            self._send_queue.get_nowait()
+                        except queue.Empty:
+                            break
+
                     payload = b"\xd5" * 160
+                else:
+                    try:
+                        payload = self._send_queue.get(block=True, timeout=0.02)
+                    except queue.Empty:
+                        payload = b"\xd5" * 160
 
                 packet = RTPPacket(
                     payload_type=self.audio_codec,
@@ -119,7 +179,10 @@ class RTPSender:
                 self.sock.sendto(packet.pack(), self.remote_addr)
 
                 if self.sequence % 50 == 0 and logging.root.level != logging.DEBUG:
-                    self.logger.info(f"[SEND] {self.sequence=}, {payload[:10].hex()=}")
+                    status = "PAUSED" if self._paused else "ACTIVE"
+                    self.logger.info(
+                        f"[SEND {status}] {self.sequence=}, {payload[:10].hex()=}"
+                    )
 
                 # Update state
                 self.sequence = (self.sequence + 1) & 0xFFFF
@@ -157,6 +220,43 @@ class RTPSender:
         """
         self._send_queue.put(packet)
 
+    def pause(self) -> None:
+        """
+        Pause sending audio packets (send silence instead).
+        Call this when user starts speaking to avoid interrupting them.
+        Clears the send queue to discard any queued audio.
+        """
+        if not self._paused:
+            self._paused = True
+            self.logger.info("[SENDER] Paused - user is speaking")
+
+    def resume(self) -> None:
+        """
+        Resume normal sending of audio packets.
+        Call this when user stops speaking.
+        """
+        if self._paused:
+            self._paused = False
+            self.logger.info("[SENDER] Resumed - user stopped speaking")
+
+    def is_paused(self) -> bool:
+        """
+        Check if sender is currently paused.
+
+        Returns:
+            True if paused, False otherwise
+        """
+        return self._paused
+
+    def get_send_queue(self) -> queue.Queue[bytes]:
+        """
+        Access the internal send queue.
+
+        Returns:
+            Queue object used for sending RTP packets
+        """
+        return self._send_queue
+
 
 class RTPReceiver:
     """
@@ -183,14 +283,6 @@ class RTPReceiver:
         self.recv_buffer: list[bytes] = []
         self._running = False
         self._thread: threading.Thread | None = None
-
-        # Statistics (example of why callback is useful)
-        self.stats = {
-            "total_packets": 0,
-            "total_bytes": 0,
-            "lost_packets": 0,
-            "last_sequence": -1,
-        }
 
         self.audio_codec = codec
 
@@ -247,44 +339,51 @@ class RTPReceiver:
                 # Step 2: Parse RTP packet
                 number_of_packets += 1
                 if number_of_packets % 50 == 0 and logging.root.level != logging.DEBUG:
-                    self.logger.info(f"[RTP] Received {len(data)} byte from {addr}")
+                    self.logger.info(
+                        f"[RTP-RECV] Received {len(data)} byte from {addr}"
+                    )
                 try:
                     packet = RTPPacket.unpack(data)
 
-                    # self.logger.info(f"[RECV] Received packet: {packet}")
+                    self.logger.debug(f"[RTP-RECV] Received packet: {packet}")
                     if (
                         number_of_packets % 50 == 0
                         and logging.root.level != logging.DEBUG
                     ):
                         self.logger.info(
-                            f"[RECV] {number_of_packets=}, {packet.payload[:10].hex()=}"
+                            f"[RTP-RECV] {number_of_packets=}, {packet.payload[:10].hex()=}"
                         )
 
                 except ValueError as e:
-                    self.logger.error(f"[RTP] parse error: {e}")
+                    self.logger.error(f"[RTP-RECV] parse error: {e}")
                     continue
 
                 # Step 3: Save payload for WAV writing
                 self.recv_buffer.append(packet.payload)
                 self._recv_queue.put(packet)
-                # Step 4: Update statistics
-                self._update_stats(packet)
 
-                # Step 5: Sent to ws
-                msg = ws_server.builder(
-                    CommandType.RTP,
-                    message=f"{packet.payload_type}##{packet.payload.hex()}",
-                )
-                ws_server.send_message(msg)
+                # Step 4: Sent to ws
+                try:
+                    msg = ws_server.builder(
+                        CommandType.RTP,
+                        message=f"{packet.payload_type}##{packet.payload.hex()}",
+                    )
+                    ws_server.send_message(msg)
+                except queue.Empty:
+                    continue
+                except queue.Full:
+                    self.logger.error("[RTP-RECV] WS send queue full, dropping packet")
+                    self._recv_queue.get()
 
+                # self._recv_queue.get()
             except socket.timeout as e:
-                self.logger.debug(f"[RTP] Receiver timeout: {e}")
+                self.logger.debug(f"[RTP-RECV] Receiver timeout: {e}")
                 continue
 
             except Exception as e:
                 if self._running:  # Only log if not shutting down
                     self.logger.warning(
-                        f"[RTP] Receiver error: ({type(e).__name__}): {e}"
+                        f"[RTP-RECV] Receiver error: ({type(e).__name__}): {e}"
                     )
                 continue
 
@@ -345,53 +444,14 @@ class RTPReceiver:
         if self._thread:
             self._thread.join(timeout=2.0)
 
-    def _update_stats(self, packet: RTPPacket):
-        """
-        Track packet statistics and detect packet loss.
-
-        Updates counters for total packets, bytes, and detects
-        sequence number gaps to identify lost packets.
-
-        Args:
-            packet: RTPPacket to process for statistics
-        """
-        self.stats["total_packets"] += 1
-        self.stats["total_bytes"] += len(packet.payload)
-
-        # Detect packet loss (sequence number gap)
-        if self.stats["last_sequence"] >= 0:
-            expected_seq = (self.stats["last_sequence"] + 1) & 0xFFFF
-            if packet.sequence != expected_seq:
-                # Handle sequence number wraparound
-                if packet.sequence > expected_seq:
-                    lost = packet.sequence - expected_seq
-                else:
-                    lost = (0xFFFF - expected_seq) + packet.sequence + 1
-                self.stats["lost_packets"] += lost
-
-        self.stats["last_sequence"] = packet.sequence
-
-    def get_stats(self) -> dict:
-        """
-        Thread-safe stats read.
-        Returns a copy to avoid race conditions.
-        """
-        return self.stats.copy()
-
     def get_rtp_packet(self, timeout: float = 0.07) -> RTPPacket | None:
-        """
-        Retrieve next RTP packet from receive queue.
-
-        Args:
-            timeout: Maximum time to wait for packet in seconds
-
-        Returns:
-            RTPPacket if available within timeout, None otherwise
-        """
         try:
             return self._recv_queue.get(timeout=timeout)
         except queue.Empty:
             return None
+
+    def get_recv_queue(self) -> queue.Queue[RTPPacket]:
+        return self._recv_queue
 
 
 class RTPHandler:
@@ -439,16 +499,12 @@ class RTPHandler:
         )
         self.receiver = RTPReceiver(sock=self.sock, codec=self.audio_codec)
 
+        self.vad = VADHandler(load_silero_vad())
+
         self.logger = logging.getLogger(__name__)
         self.logger.info(f"[RTPHandler] {remote_recv_addr=} {local_port=}")
 
     def start(self) -> None:
-        """
-        Start both RTP sender and receiver threads.
-
-        Begins receiving RTP packets and starts the sender thread
-        which will send packets as they are queued.
-        """
         self.receiver.start()
         self.sender.start()
 
@@ -508,53 +564,43 @@ class RTPHandler:
             offset += bytes_per_packet
 
     def save_received_wav(self, output_path: Path) -> None:
-        """
-        Save all received RTP packets as a WAV file.
-
-        Decodes received G.711 packets to PCM and writes a WAV file
-        at 8000Hz stereo (2 channels, 16-bit).
-
-        Args:
-            output_path: Destination file path for WAV file
-        """
         self.receiver.save_wav(output_path)
 
     def stop(self) -> None:
-        """
-        Stop RTP handler and close socket.
-
-        Gracefully stops both sender and receiver threads,
-        then closes the UDP socket.
-        """
         self.sender.stop()
         self.receiver.stop()
         self.sock.close()
         self.logger.info("Socket closed")
 
     def send_packet(self, packet: bytes) -> None:
-        """
-        Queue a single audio packet for transmission.
-
-        Args:
-            packet: G.711 encoded audio (160 bytes)
-        """
         self.sender.send_rtp_packet(packet)
 
-    def recv_packet(self) -> RTPPacket | None:
-        """
-        Retrieve a received RTP packet from the queue.
+    # def recv_packet(self) -> RTPPacket | None:
+    #     return self.receiver.get_rtp_packet()
 
-        Returns:
-            RTPPacket if available, None if queue is empty after timeout
-        """
-        return self.receiver.get_rtp_packet()
+    def pause_sending(self) -> None:
+        self.sender.pause()
+
+    def resume_sending(self) -> None:
+        self.sender.resume()
+
+    def update_sending_state(self) -> None:
+        packet = self.receiver.get_rtp_packet()
+        if packet is None:
+            return
+
+        is_speaking = self.vad.process_packet(packet.payload)
+        if is_speaking:
+            self.sender.pause()
+            self.logger.debug("VAD: SPEECH detected - pausing sender")
+        else:
+            self.sender.resume()
+            self.logger.debug("VAD: SILENCE detected - resuming sender")
 
     def __enter__(self) -> "RTPHandler":
-        """Context manager entry - start RTP handler"""
         self.start()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit - ensure cleanup"""
         self.stop()
         return None
