@@ -106,8 +106,8 @@ class RelayServer:
         Process incoming SIP messages.
 
         This is the main entry point for all SIP traffic.
-        We handle: INVITE, ACK, BYE
-        We ignore: OPTIONS, REGISTER, etc. (for now)
+        Handle: INVITE, ACK, BYE
+        Ignore: OPTIONS, REGISTER, etc. (for now)
         """
         self.logger.debug(f"Processing message from {addr}: {message[:20]}")
 
@@ -152,6 +152,7 @@ class RelayServer:
                 self._send_response(addr, response, socket)
 
     def ws_message_handler(self, ws_command: WebSocketCommand) -> None:
+        """Process incoming WebSocket commands."""
         self.logger.debug(
             f"Processing message from WS: {ws_command.type} - {ws_command.content}"
         )
@@ -175,6 +176,7 @@ class RelayServer:
     def _handle_response(
         self, response: SIPResponse, addr: tuple[str, int], socket: socket.socket
     ) -> None:
+        """Handle SIP responses."""
         status_code = response.status_line.status_code
         call_id = response.headers.call_id
 
@@ -355,6 +357,13 @@ class RelayServer:
         addr: tuple[str, int],
         socket: socket.socket,
     ) -> None:
+        """
+        Handle sending ACK for 200 OK response.
+        ACK finalizes the call setup. We must:
+        1. Send ACK message
+        2. Start RTP session
+        3. Notify WebSocket of call answer
+        """
         call_id = response.headers.call_id
         if not call_id:
             raise ValueError("No call-id")
@@ -685,13 +694,13 @@ class RelayServer:
 
     def _send_sip_message(self, message: str) -> None:
         """Send SIP message via UDP. Raises on failure."""
+
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             destination = (self.sip_server_ip, self.transf_port)
             sock.sendto(message.encode("utf-8"), destination)
 
     def _build_sdp_offer(self, rtp_port: int) -> str:
         """Build minimal SDP offer for outbound call."""
-        import time
 
         session_id = int(time.time())
         lines = [
@@ -709,6 +718,11 @@ class RelayServer:
         return "\r\n".join(lines) + "\r\n"
 
     def _handle_rtp(self, rtp: str | None = None) -> None:
+        """
+        Handle incoming RTP data from WebSocket.
+        Args:
+            rtp: RTP data string in format "RTP:<PCMA or PCMU>##<PCM Byte String>"
+        """
         if rtp is None:
             raise ValueError("No call_id")
 
