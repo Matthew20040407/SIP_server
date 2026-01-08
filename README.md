@@ -150,6 +150,13 @@ CALL_CENTER_BUFFER_SIZE=120
 
 The server uses a centralized `Config` class that loads settings from environment variables (`.env` file). All configuration is managed through the `config.py` module.
 
+### SIP server setting
+
+| 选择 | ID  | 描述 | 源类型 | 源 ID           | 主叫前缀 | 被叫前缀 | 目的类型 | 目的 ID         | 选线方式 | 号码转换类型 | 左起删除的位数 | 右起删除的位数 | 添加前缀 | 添加后缀 | 右起保留的位数 |
+| ---- | --- | ---- | ------ | --------------- | -------- | -------- | -------- | --------------- | -------- | ------------ | -------------- | -------------- | -------- | -------- | -------------- |
+|      | 1   |      | IP     | 192.168.157.126 |          |          | GSM      | 1               | 轮选     | 转换被叫     |                |                |          |          |                |
+|      | 2   |      | GSM    | 1               |          |          | IP       | 192.168.157.126 | 轮选     | 转换主叫     |                |                |          |          |                |
+
 ### Configuration Options
 
 See the `.env` file created during installation for all available options. The configuration is validated on startup to ensure required values (like `OPENAI_API_KEY`) are present.

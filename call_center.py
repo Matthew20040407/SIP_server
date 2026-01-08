@@ -10,6 +10,7 @@ from websockets.sync.client import connect
 
 from config import Config
 from helper.custom_sts_handler import LLM, Speech2Text, Text2Speech
+from helper.llm_backends.api import APIBackend
 from helper.PROMPT import SYSTEM_PROMPT
 from helper.wav_handler import WavHandler
 from helper.ws_command import WSCommandHelper
@@ -75,11 +76,27 @@ class RTPSession:
         self.buffer.clear()
 
 
-def main() -> None:
+def handle_ans(session: RTPSession, call_id: str) -> None:
+    session.clear()
+    session.call_id = call_id
+    logger.info(f"Call started: {session.call_id}")
+
+
+def handle_bye(session: RTPSession, call_id: str) -> None:
+    logger.info(f"Call ended: {session.call_id}")
+
+
+async def main() -> None:
     session = RTPSession()
-    llm_handler = LLM(SYSTEM_PROMPT)
+    llm_backend = APIBackend(SYSTEM_PROMPT)
+    llm_handler = LLM(llm_backend)
     stt = Speech2Text()
     tts = Text2Speech()
+
+    command_handler = {
+        CommandType.CALL_ANS: handle_ans,
+        CommandType.BYE: handle_bye,
+    }
 
     logger.info("LLM and STT/TTS initialized")
     packet_count = 0
@@ -100,17 +117,15 @@ def main() -> None:
                 if not isinstance(cmd.content, str):
                     continue
 
-                if cmd.type == CommandType.CALL_ANS:
-                    session.clear()
-                    session.call_id = cmd.content
-                    logger.info(f"Call started: {session.call_id}")
+                # handle CALL_ANS, BYE
+                handler = command_handler.get(cmd.type)
+                if handler:
+                    handler(session, cmd.content)
                     continue
 
-                if cmd.type == CommandType.BYE:
-                    logger.info(f"Call ended: {session.call_id}")
-                    continue
-
+                # handle RTP
                 if cmd.type != CommandType.RTP:
+                    logger.info(cmd.type)
                     continue
 
                 try:
@@ -143,8 +158,8 @@ def main() -> None:
                         logger.info(f"WAV file converted at {wav_path}")
 
                         audio_transcribe, language = stt.transcribe(wav_path)
-                        llm_response = llm_handler.generate_response(
-                            audio_transcribe, language
+                        llm_response = await llm_handler.generate_response(
+                            audio_transcribe, language, user_id=session.call_id
                         )
                         logger.info(f"LLM Response: {llm_response}")
                         tts.generate(llm_response, response_audio_path, language)
@@ -180,11 +195,17 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import asyncio
+    import sys
+
     logging.basicConfig(
         level=logging.INFO,
         format="[%(levelname)s] - %(asctime)s - %(message)s - %(pathname)s:%(lineno)d",
         filemode="w+",
-        filename="call_center.log",
+        filename="call center.log",
         datefmt="%y-%m-%d %H:%M:%S",
     )
-    main()
+    console_handler = logging.StreamHandler(sys.stdout)
+    logger = logging.getLogger()
+    logger.addHandler(console_handler)
+    asyncio.run(main())

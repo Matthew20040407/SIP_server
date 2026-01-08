@@ -6,14 +6,11 @@ import wave
 from pathlib import Path
 
 import langid
-import torch
 from faster_whisper import WhisperModel
 from piper import PiperVoice
-from transformers import (
-    AutoModelForCausalLM,  # type: ignore[reportPrivateImportUsage]
-    AutoTokenizer,  # type: ignore[reportPrivateImportUsage]
-)
 
+from helper.llm_backends.api import APIBackend
+from helper.llm_backends.llm_backend import LLM
 from helper.PROMPT import SYSTEM_PROMPT
 
 
@@ -137,93 +134,6 @@ class Speech2Text:
         return result
 
 
-class LLM:
-    def __init__(
-        self,
-        system_prompt: str | None = None,
-        max_history_turns: int = 10,
-    ) -> None:
-        self.logger = logging.getLogger("LLM")
-        start_time = time.time()
-
-        self.logger.info("Loading tokenizer...")
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            "Qwen/Qwen3-1.7B",
-            revision="70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
-        )
-
-        self.logger.info("Loading model...")
-        self.model = AutoModelForCausalLM.from_pretrained(
-            "Qwen/Qwen3-1.7B",
-            revision="70d244cc86ccca08cf5af4e1e306ecf908b1ad5e",
-            device_map="cuda",
-        )
-
-        init_time = time.time() - start_time
-        self.logger.info(f"LLM initialized in {init_time:.2f}s")
-
-        self.max_history_turns = max_history_turns
-        self.history = []
-        if system_prompt:
-            self.history.append({"role": "system", "content": system_prompt})
-
-        self.past_key_values = None
-        self.cached_token_count = 0
-
-    def generate_response(self, user_input: str, language: str = "zh") -> str:
-        query = (
-            f"/no_think\n您必須使用此語言進行輸出:{language} \n用戶提問:" + user_input
-        )
-        self.history.append({"role": "user", "content": query})
-
-        messages = self.history.copy()
-        text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-
-        model_inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
-        input_ids = model_inputs.input_ids
-
-        if self.past_key_values is not None and len(self.history) > 2:
-            new_tokens = input_ids[:, self.cached_token_count :]
-            attention_mask = torch.ones(
-                (1, self.cached_token_count + new_tokens.shape[1]),
-                device=self.model.device,
-            )
-        else:
-            new_tokens = input_ids
-            attention_mask = model_inputs.attention_mask
-
-        outputs = self.model.generate(
-            new_tokens,
-            max_new_tokens=128,
-            past_key_values=self.past_key_values,
-            attention_mask=attention_mask,
-            use_cache=True,
-            do_sample=False,
-        )
-
-        self.past_key_values = (
-            outputs.past_key_values if hasattr(outputs, "past_key_values") else None
-        )
-        self.cached_token_count = input_ids.shape[1]
-
-        response_ids = outputs[0][new_tokens.shape[1] :]
-        response = self.tokenizer.decode(response_ids, skip_special_tokens=True)
-        response = response.replace("<think>", "").replace("</think>", "").strip()
-
-        self.history.append({"role": "assistant", "content": response})
-
-        return response
-
-    def clear_history(self) -> None:
-        self.history = [self.history[0]]
-        self.past_key_values = None
-        self.cached_token_count = 0
-
-
 class Text2Speech:
     VOICE_MAP = {
         "en": "./voices/en/en_US-lessac-medium.onnx",
@@ -306,9 +216,23 @@ class Text2Speech:
         return lang, confidence
 
 
-if __name__ == "__main__":
+async def main() -> None:
+    import sys
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(levelname)s] - %(asctime)s - %(message)s - %(pathname)s:%(lineno)d",
+        filemode="w+",
+        filename="testing.log",
+        datefmt="%y-%m-%d %H:%M:%S",
+    )
+    console_handler = logging.StreamHandler(sys.stdout)
+    logger = logging.getLogger()
+    logger.addHandler(console_handler)
+
+    llm_backend = APIBackend(system_prompt=SYSTEM_PROMPT)
     stt = Speech2Text()
-    llm = LLM(system_prompt=SYSTEM_PROMPT)
+    llm = LLM(backend=llm_backend)
     tts = Text2Speech()
 
     print("Start testing...")
@@ -317,7 +241,7 @@ if __name__ == "__main__":
     print(f"Transcription time: {time.time() - st_time:.2f}s")
 
     st_time = time.time()
-    response = llm.generate_response(incoming_voice)
+    response = await llm.generate_response(incoming_voice, user_id=1234)
     print(response)
     print(f"LLM time: {time.time() - st_time:.2f}s")
 
@@ -326,10 +250,16 @@ if __name__ == "__main__":
     print(f"TTS time: {time.time() - st_time:.2f}s")
 
     st_time = time.time()
-    response = llm.generate_response(incoming_voice)
+    response = await llm.generate_response(incoming_voice, user_id=1234)
     print(response)
     print(f"LLM time: {time.time() - st_time:.2f}s")
 
     st_time = time.time()
     tts.generate(response, "./output/response/demo2.wav")
     print(f"TTS time: {time.time() - st_time:.2f}s")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(main())
