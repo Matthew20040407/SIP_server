@@ -15,4 +15,3 @@ wheels/
 .env
 !greeting.wav
 voice_models/
-!greeting.wav
