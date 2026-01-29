@@ -167,6 +167,40 @@ websockets>=15.0.1          # WebSocket protocol
 
 ## Installation
 
+### Option 1: Docker (Recommended)
+
+```bash
+git clone <repository-url>
+cd SIP_server_v2
+
+# Copy and configure environment
+cp .env.docker.example .env
+# Edit .env with your settings (SIP_LOCAL_IP, OPENAI_API_KEY, etc.)
+
+# Build and start services
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop services
+docker compose down
+```
+
+**Docker Requirements:**
+- Docker Engine 20.10+
+- Docker Compose v2.0+
+- Approximately 2GB disk space for images
+- Host network mode (for SIP/RTP compatibility)
+
+**Volume Mounts:**
+- `./voices/` - TTS voice models (~500MB)
+- `./output/` - Audio output files
+- `./recording/` - Call recordings
+- `./output/transcode/greeting.wav` - Greeting audio
+
+### Option 2: Local Installation
+
 ```bash
 git clone <repository-url>
 cd SIP_server_v2
@@ -620,6 +654,144 @@ cmd_type, payload = WSCommandHelper.parse("CALL:1234567890")
 # Build outgoing command
 message = WSCommandHelper.build("RING_ANS", "1234567890##call-123")
 ```
+
+---
+
+## Docker Deployment
+
+### Quick Start
+
+```bash
+# 1. Configure environment
+cp .env.docker.example .env
+vim .env  # Set SIP_LOCAL_IP, OPENAI_API_KEY, etc.
+
+# 2. Ensure greeting audio exists
+mkdir -p output/transcode
+# Copy your greeting.wav to output/transcode/
+
+# 3. Build and run (using build script)
+./scripts/docker-build.sh up
+
+# Or manually:
+docker compose up -d --build
+
+# 4. Check status
+./scripts/docker-build.sh status
+```
+
+### Build Script
+
+A convenience script is provided at `scripts/docker-build.sh`:
+
+```bash
+./scripts/docker-build.sh [COMMAND] [OPTIONS]
+
+Commands:
+    build       Build Docker images
+    up          Build and start services
+    down        Stop and remove containers
+    restart     Restart services
+    logs        View service logs (supports -f for follow)
+    status      Show container status and resource usage
+    clean       Remove images and volumes
+    shell       Open shell in container
+    help        Show help message
+
+Options:
+    --no-cache  Build without cache
+    --gpu       Enable GPU support
+    -t, --tag   Image tag (default: latest)
+
+Examples:
+    ./scripts/docker-build.sh build --no-cache
+    ./scripts/docker-build.sh up --gpu
+    ./scripts/docker-build.sh logs -f
+    ./scripts/docker-build.sh shell sip-server
+```
+
+### Architecture
+
+The Docker deployment consists of two services:
+
+| Service | Container | Description |
+|---------|-----------|-------------|
+| `sip-server` | sip-server | SIP signaling, RTP handling, WebSocket server |
+| `call-center` | call-center | AI pipeline (STT → LLM → TTS) |
+
+Both containers use `network_mode: host` for proper SIP/RTP NAT traversal.
+
+### GPU Support
+
+To enable NVIDIA GPU acceleration for ML models (Whisper, local LLM):
+
+```yaml
+# Uncomment in docker-compose.yml under call-center service:
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: 1
+          capabilities: [gpu]
+```
+
+Requirements:
+- NVIDIA Docker runtime (`nvidia-container-toolkit`)
+- CUDA 12.x compatible GPU
+
+### Common Commands
+
+```bash
+# Build images
+docker compose build
+
+# Start in foreground
+docker compose up
+
+# Start in background
+docker compose up -d
+
+# View logs
+docker compose logs -f sip-server
+docker compose logs -f call-center
+
+# Restart services
+docker compose restart
+
+# Stop and remove containers
+docker compose down
+
+# Stop and remove with volumes
+docker compose down -v
+
+# Rebuild and restart
+docker compose up -d --build
+```
+
+### Troubleshooting Docker
+
+**Port conflicts:**
+```bash
+# Check if ports are in use
+ss -tulpn | grep -E '5060|5062|8080|31000'
+```
+
+**Container won't start:**
+```bash
+# Check logs
+docker compose logs sip-server
+docker compose logs call-center
+```
+
+**No audio / SIP issues:**
+- Ensure `SIP_LOCAL_IP` is set to your host's actual IP (not `0.0.0.0` or `127.0.0.1`)
+- Verify firewall allows UDP on SIP and RTP ports
+- Check that `network_mode: host` is set in docker-compose.yml
+
+**Model download issues:**
+- First startup may take time to download Whisper models
+- Check `huggingface-cache` volume for cached models
 
 ---
 
