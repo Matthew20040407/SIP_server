@@ -51,7 +51,7 @@ A Python-based SIP relay server with advanced AI integration for intelligent voi
 │                                    │                            │
 │         ┌──────────────────────────┼──────────────────────┐     │
 │         │                          │                      │     │
-│  ┌──────▼──────┐  ┌────────────────▼───────┐  ┌──────────▼──┐   │
+│  ┌──────▼──────┐  ┌────────────────▼───────┐  ┌───────────▼─┐   │
 │  │ RTPHandler  │  │    VADHandler          │  │ SIPParsers  │   │
 │  │ (Audio I/O) │  │ (Voice Activity Detect)│  │ (SIP/SDP)   │   │
 │  └──────┬──────┘  └────────────────────────┘  └─────────────┘   │
