@@ -370,7 +370,7 @@ class RTPHandler:
     def __init__(
         self,
         remote_recv_addr: tuple[str, int],
-        local_ip: str = "192.168.1.101",
+        local_ip: str = "192.168.1.102",
         local_port: int | None = None,
         ssrc: int = 0x12345678,
         codec: PayloadType = PayloadType.PCMA,

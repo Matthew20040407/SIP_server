@@ -100,7 +100,7 @@ async def main() -> None:
 
     logger.info("LLM and STT/TTS initialized")
     packet_count = 0
-    ws_url = os.getenv("WS_URL", "ws://192.168.1.101:8080")
+    ws_url = os.getenv("WS_URL", "ws://192.168.1.102:8080")
     try:
         with connect(ws_url) as websocket:
             logger.info("WebSocket connected")

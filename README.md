@@ -220,15 +220,15 @@ Create a `.env` file in the project root:
 OPENAI_API_KEY=your_openai_api_key_here
 
 # SIP Configuration
-SIP_LOCAL_IP=192.168.1.101        # Your server's IP address
+SIP_LOCAL_IP=192.168.1.102        # Your server's IP address
 SIP_LOCAL_PORT=5062               # SIP listening port
 SIP_TRANSFER_PORT=5060            # SIP transfer/relay port
 SIP_SERVER_IP=192.168.1.170       # Remote SIP server IP
 
 # WebSocket Configuration
-WS_HOST=192.168.1.101
+WS_HOST=192.168.1.102
 WS_PORT=8080
-WS_URL=ws://192.168.1.101:8080
+WS_URL=ws://192.168.1.102:8080
 
 # RTP Configuration
 RTP_PORT_START=31000              # Start of RTP port range

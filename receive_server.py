@@ -20,10 +20,10 @@ from model.ws_command import CommandType, WebSocketCommand
 class RelayServer:
     def __init__(
         self,
-        host: str = "192.168.1.101",
+        host: str = "192.168.1.102",
         transf_port: int = 5060,
         recv_port: int = 5062,
-        local_ip: str = "192.168.1.101",
+        local_ip: str = "192.168.1.102",
         sip_server_ip: str = "192.168.1.170",
     ):
         self.host = host
