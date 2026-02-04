@@ -1,5 +1,4 @@
 import logging
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,7 +7,7 @@ from uuid import uuid4
 import webrtcvad
 from websockets.sync.client import connect
 
-from config import Config
+from config import WebSocketSetting
 from helper.custom_sts_handler import LLM, Speech2Text, Text2Speech
 from helper.llm_backends.api import APIBackend
 from helper.PROMPT import SYSTEM_PROMPT
@@ -100,7 +99,7 @@ async def main() -> None:
 
     logger.info("LLM and STT/TTS initialized")
     packet_count = 0
-    ws_url = os.getenv("WS_URL", "ws://192.168.1.102:8080")
+    ws_url = WebSocketSetting().ws_url
     try:
         with connect(ws_url) as websocket:
             logger.info("WebSocket connected")
@@ -148,7 +147,7 @@ async def main() -> None:
                     continue
 
                 if session.add_packet(packet):
-                    packet_count += Config.CALL_CENTER_BUFFER_SIZE
+                    packet_count += 120
                     logger.info(f"Processed {packet_count} packets")
 
                     wav_path = None

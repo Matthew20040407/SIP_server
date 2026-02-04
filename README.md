@@ -188,12 +188,14 @@ docker compose down
 ```
 
 **Docker Requirements:**
+
 - Docker Engine 20.10+
 - Docker Compose v2.0+
 - Approximately 2GB disk space for images
 - Host network mode (for SIP/RTP compatibility)
 
 **Volume Mounts:**
+
 - `./voices/` - TTS voice models (~500MB)
 - `./output/` - Audio output files
 - `./recording/` - Call recordings
@@ -710,14 +712,14 @@ Examples:
     ./scripts/docker-build.sh shell sip-server
 ```
 
-### Architecture
+### Overall Architecture
 
 The Docker deployment consists of two services:
 
-| Service | Container | Description |
-|---------|-----------|-------------|
-| `sip-server` | sip-server | SIP signaling, RTP handling, WebSocket server |
-| `call-center` | call-center | AI pipeline (STT → LLM → TTS) |
+| Service       | Container   | Description                                   |
+| ------------- | ----------- | --------------------------------------------- |
+| `sip-server`  | sip-server  | SIP signaling, RTP handling, WebSocket server |
+| `call-center` | call-center | AI pipeline (STT → LLM → TTS)                 |
 
 Both containers use `network_mode: host` for proper SIP/RTP NAT traversal.
 
@@ -737,6 +739,7 @@ deploy:
 ```
 
 Requirements:
+
 - NVIDIA Docker runtime (`nvidia-container-toolkit`)
 - CUDA 12.x compatible GPU
 
@@ -772,12 +775,14 @@ docker compose up -d --build
 ### Troubleshooting Docker
 
 **Port conflicts:**
+
 ```bash
 # Check if ports are in use
 ss -tulpn | grep -E '5060|5062|8080|31000'
 ```
 
 **Container won't start:**
+
 ```bash
 # Check logs
 docker compose logs sip-server
@@ -785,11 +790,13 @@ docker compose logs call-center
 ```
 
 **No audio / SIP issues:**
+
 - Ensure `SIP_LOCAL_IP` is set to your host's actual IP (not `0.0.0.0` or `127.0.0.1`)
 - Verify firewall allows UDP on SIP and RTP ports
 - Check that `network_mode: host` is set in docker-compose.yml
 
 **Model download issues:**
+
 - First startup may take time to download Whisper models
 - Check `huggingface-cache` volume for cached models
 

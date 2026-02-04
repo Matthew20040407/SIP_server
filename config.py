@@ -1,11 +1,10 @@
 # Code by DHT@Matthew
 
-import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv("./.env")
 
@@ -20,65 +19,11 @@ def config_factory(env_prefix: str) -> SettingsConfigDict:
     )
 
 
-class Config:
-    """Centralized configuration for SIP server"""
-
-    # SIP Configuration
-    SIP_LOCAL_IP: str = os.getenv("SIP_LOCAL_IP", "192.168.1.102")
-    SIP_LOCAL_PORT: int = int(os.getenv("SIP_LOCAL_PORT", "5062"))
-    SIP_TRANSFER_PORT: int = int(os.getenv("SIP_TRANSFER_PORT", "5060"))
-    SIP_SERVER_IP: str = os.getenv("SIP_SERVER_IP", "192.168.1.170")
-
-    # WebSocket Configuration
-    WS_HOST: str = os.getenv("WS_HOST", "192.168.1.102")
-    WS_PORT: int = int(os.getenv("WS_PORT", "8080"))
-    WS_URL: str = os.getenv("WS_URL", f"ws://{WS_HOST}:{WS_PORT}")
-
-    # RTP Configuration
-    RTP_PORT_START: int = int(os.getenv("RTP_PORT_START", "31000"))
-    RTP_PORT_END: int = int(os.getenv("RTP_PORT_END", "31010"))
-
-    # OpenAI Configuration
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-
-    # Logging Configuration
-    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    SIP_LOG_FILE: str = os.getenv("SIP_LOG_FILE", "sip_server.log")
-    CALL_CENTER_LOG_FILE: str = os.getenv("CALL_CENTER_LOG_FILE", "call_center.log")
-
-    # File Management
-    RECORDING_DIR: Path = Path(os.getenv("RECORDING_DIR", "./recording"))
-    OUTPUT_DIR: Path = Path(os.getenv("OUTPUT_DIR", "./output"))
-    MAX_RECORDING_AGE_DAYS: int = int(os.getenv("MAX_RECORDING_AGE_DAYS", "7"))
-
-    # Call Center Configuration
-    CALL_CENTER_BUFFER_SIZE: int = int(os.getenv("CALL_CENTER_BUFFER_SIZE", "120"))
-
-    # Queue Limits (prevent unbounded memory growth)
-    WS_SEND_QUEUE_MAX: int = int(os.getenv("WS_SEND_QUEUE_MAX", "1000"))
-    WS_RECV_QUEUE_MAX: int = int(os.getenv("WS_RECV_QUEUE_MAX", "1000"))
-    RTP_SEND_QUEUE_MAX: int = int(os.getenv("RTP_SEND_QUEUE_MAX", "500"))
-    RTP_RECV_QUEUE_MAX: int = int(os.getenv("RTP_RECV_QUEUE_MAX", "500"))
-
-    @classmethod
-    def validate(cls) -> None:
-        """Validate required configuration"""
-        if not cls.OPENAI_API_KEY:
-            raise ValueError("OPENAI_API_KEY is required")
-
-        # Create required directories
-        cls.RECORDING_DIR.mkdir(parents=True, exist_ok=True)
-        cls.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        (cls.OUTPUT_DIR / "convented").mkdir(exist_ok=True)
-        (cls.OUTPUT_DIR / "response").mkdir(exist_ok=True)
-        (cls.OUTPUT_DIR / "transcode").mkdir(exist_ok=True)
-
-
 class SIPConfig(BaseSettings):
     sip_local_ip: str = "192.168.1.102"
     sip_local_port: int = 5062
     sip_transfer_port: int = 5060
-    sip_server_port: str = "192.168.1.170"
+    sip_server_ip: str = "192.168.1.170"
 
     model_config = config_factory("SIP_")
 
@@ -105,7 +50,7 @@ class RTPConfig(BaseSettings):
     model_config = config_factory("RTP_")
 
 
-class LoggingConfing(BaseSettings):
+class LoggingConfig(BaseSettings):
     log_level: str = "INFO"
     sip_log_file: str = "./sip_server.log"
     call_center_log_file: str = "./call_center.log"
@@ -119,10 +64,24 @@ class FileConfig(BaseSettings):
     max_recording_age_day: int = 7
 
     model_config = config_factory("FILE_")
-    
-    @field_validator("output_dir", "recording_dir", mode="after")
+
+    @field_validator("recording_dir", mode="after")
     @classmethod
     def ensure_dir_exists(cls, dir_name: Path) -> Path:
-        dir_name.mkdir(parents=True, exist_ok=True) 
+        dir_name.mkdir(parents=True, exist_ok=True)
+        (dir_name / "convented").mkdir(exist_ok=True)
+        (dir_name / "response").mkdir(exist_ok=True)
+        (dir_name / "transcode").mkdir(exist_ok=True)
         return dir_name
-        
+
+    @field_validator("output_dir", mode="after")
+    @classmethod
+    def ensure_output_dir_exists(cls, dir_name: Path) -> Path:
+        dir_name.mkdir(parents=True, exist_ok=True)
+        return dir_name
+
+
+class OpenaiConfig(BaseSettings):
+    api_key: str = ""
+
+    model_config = config_factory("OPENAI_")
