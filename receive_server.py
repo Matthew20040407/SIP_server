@@ -8,6 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
+from config import LoggingConfig, SIPConfig
 from helper.sip_parsers import SipMessageParser
 from helper.sip_session import SIPRTPSession
 from helper.wav_handler import WavHandler
@@ -20,17 +21,18 @@ from model.ws_command import CommandType, WebSocketCommand
 class RelayServer:
     def __init__(
         self,
-        host: str = "192.168.1.101",
+        host: str = "192.168.1.102",
         transf_port: int = 5060,
         recv_port: int = 5062,
-        local_ip: str = "192.168.1.101",
+        local_ip: str = "192.168.1.102",
         sip_server_ip: str = "192.168.1.170",
     ):
-        self.host = host
-        self.recv_port = recv_port
-        self.transf_port = transf_port
-        self.local_ip = local_ip
-        self.sip_server_ip = sip_server_ip
+        self.sip_config = SIPConfig()
+        self.host = self.sip_config.sip_local_ip
+        self.recv_port = self.sip_config.sip_local_port
+        self.transf_port = self.sip_config.sip_transfer_port
+        self.local_ip = self.sip_config.sip_local_ip
+        self.sip_server_ip = self.sip_config.sip_server_ip
 
         self.logger = logging.getLogger("SIPServer")
 
@@ -738,11 +740,12 @@ class RelayServer:
 
 
 if __name__ == "__main__":
+    logging_config = LoggingConfig()
     logging.basicConfig(
         level=logging.INFO,
         format="[%(levelname)s] - %(asctime)s - %(message)s - %(pathname)s:%(lineno)d",
         filemode="w+",
-        filename="sip_server.log",
+        filename=logging_config.sip_log_file,
         datefmt="%y-%m-%d %H:%M:%S",
     )
     console_handler = logging.StreamHandler(sys.stdout)

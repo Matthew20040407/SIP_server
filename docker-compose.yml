@@ -1,0 +1,126 @@
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # SIP Receive Server - Main SIP signaling and RTP handler
+  # ==========================================================================
+  sip-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sip-server-v2:latest
+    container_name: sip-server
+    restart: unless-stopped
+
+    # Environment configuration
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Override these for Docker networking
+      - SIP_LOCAL_IP=${SIP_LOCAL_IP:-0.0.0.0}
+      - WS_HOST=${WS_HOST:-0.0.0.0}
+
+    # Network mode: host is required for SIP/RTP to work properly
+    # SIP/RTP requires symmetric NAT traversal and direct UDP port access
+    network_mode: host
+
+    # Volume mounts
+    volumes:
+      # Voice models (TTS) - mount your voices directory
+      - ./voices:/app/voices:ro
+      # Output directory for audio files
+      - ./output:/app/output
+      # Call recordings
+      - ./recording:/app/recording
+      # Greeting audio file
+      - ./output/transcode/greeting.wav:/app/output/transcode/greeting.wav:ro
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(('', 0)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    # Logging configuration
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================================================
+  # Call Center - AI processing service (STT -> LLM -> TTS)
+  # ==========================================================================
+  call-center:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sip-server-v2:latest
+    container_name: call-center
+    restart: unless-stopped
+
+    # Override the default command
+    command: ["python", "call_center.py"]
+
+    # Environment configuration
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Connect to the SIP server's WebSocket
+      - WS_URL=${WS_URL:-ws://localhost:8080}
+
+    # Network mode: host to connect to SIP server WebSocket
+    network_mode: host
+
+    # Wait for SIP server to be ready
+    depends_on:
+      sip-server:
+        condition: service_healthy
+
+    # Volume mounts
+    volumes:
+      # Voice models (TTS)
+      - ./voices:/app/voices:ro
+      # Output directory for audio files
+      - ./output:/app/output
+      # HuggingFace cache for ML models (Whisper, etc.)
+      - huggingface-cache:/home/sipserver/.cache/huggingface
+
+    # For GPU support (uncomment if using NVIDIA GPU)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+    # Logging configuration
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# =============================================================================
+# Named volumes
+# =============================================================================
+volumes:
+  huggingface-cache:
+    driver: local
+
+# =============================================================================
+# Alternative: Bridge network mode (for isolated networking)
+# Uncomment below and remove network_mode: host if you want isolated networking
+# Note: This requires additional NAT configuration for SIP/RTP to work
+# =============================================================================
+# networks:
+#   sip-network:
+#     driver: bridge
+#     ipam:
+#       config:
+#         - subnet: 172.28.0.0/16

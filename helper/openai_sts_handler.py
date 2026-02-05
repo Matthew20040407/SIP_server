@@ -1,11 +1,11 @@
 # Code by DHT@Matthew
 
-import os
 from pathlib import Path
 
-from dotenv import load_dotenv
 from openai import OpenAI
 from PROMPT import SYSTEM_PROMPT
+
+from config import OpenaiConfig
 
 
 class OpenAiSTT:
@@ -72,7 +72,7 @@ class OpenAiLLM:
         self._model = model
         self.system_prompt = SYSTEM_PROMPT
 
-    def chat(self, message: str, system_prompt: str) -> str:
+    def chat(self, message: str, system_prompt: str | None = None) -> str:
         if not message:
             raise ValueError("Message cannot be empty")
 
@@ -133,8 +133,7 @@ class VoicePipeline:
 
 
 if __name__ == "__main__":
-    load_dotenv("./.env")
-    api_key = os.getenv("OPENAI_API_KEY", None)
+    api_key = OpenaiConfig().api_key
 
     if not api_key:
         raise Exception("No OPENAI_API_KEY")
