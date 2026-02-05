@@ -1,13 +1,15 @@
 import logging
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
+import uvicorn
 import webrtcvad
 from websockets.sync.client import connect
 
-from config import WebSocketSetting
+from config import WebSocketConfig
 from helper.custom_sts_handler import LLM, Speech2Text, Text2Speech
 from helper.llm_backends.api import APIBackend
 from helper.PROMPT import SYSTEM_PROMPT
@@ -15,6 +17,8 @@ from helper.wav_handler import WavHandler
 from helper.ws_command import WSCommandHelper
 from model.rtp import PayloadType
 from model.ws_command import CommandType
+from web_chat import app as web_app
+from web_chat import broadcast_message
 
 # from helper.openai_handler import OpenAiLLM, OpenAiSTT, OpenAiTTS
 
@@ -99,7 +103,7 @@ async def main() -> None:
 
     logger.info("LLM and STT/TTS initialized")
     packet_count = 0
-    ws_url = WebSocketSetting().ws_url
+    ws_url = WebSocketConfig().ws_url
     try:
         with connect(ws_url) as websocket:
             logger.info("WebSocket connected")
@@ -157,10 +161,16 @@ async def main() -> None:
                         logger.info(f"WAV file converted at {wav_path}")
 
                         audio_transcribe, language = stt.transcribe(wav_path)
+                        await broadcast_message(
+                            session.call_id, "user", audio_transcribe, language
+                        )
                         llm_response = await llm_handler.generate_response(
                             audio_transcribe, language, user_id=session.call_id
                         )
                         logger.info(f"LLM Response: {llm_response}")
+                        await broadcast_message(
+                            session.call_id, "assistant", llm_response, language
+                        )
                         tts.generate(llm_response, response_audio_path, language)
                         wav_data = wav_handler.wav2base64(response_audio_path)
                         logger.info(f"WAV data: {wav_data[:30]}...")
@@ -193,6 +203,15 @@ async def main() -> None:
         sys.exit(1)
 
 
+def start_web_server(host: str = "127.0.0.1", port: int = 8088) -> None:
+    """Start the web chat server in a background thread"""
+    config = uvicorn.Config(web_app, host=host, port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    logger.info(f"Web chat server started at http://{host}:{port}")
+
+
 if __name__ == "__main__":
     import asyncio
     import sys
@@ -207,4 +226,6 @@ if __name__ == "__main__":
     console_handler = logging.StreamHandler(sys.stdout)
     logger = logging.getLogger()
     logger.addHandler(console_handler)
+
+    start_web_server()
     asyncio.run(main())

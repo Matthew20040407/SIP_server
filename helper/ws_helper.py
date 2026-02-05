@@ -6,7 +6,7 @@ import threading
 
 from websockets.sync.server import Server, ServerConnection, serve
 
-from config import Config
+from config import WebSocketConfig
 from helper.ws_command import WSCommandHelper
 from model.ws_command import WebSocketCommand
 
@@ -14,14 +14,15 @@ from model.ws_command import WebSocketCommand
 class WebsocketServer:
     def __init__(self, host: str | None = None, port: int | None = None):
         self.logger = logging.getLogger("WebsocketServer")
-        self.host = host or Config.WS_HOST
-        self.port = port or Config.WS_PORT
+        self.ws_config = WebSocketConfig()
+        self.host = host or self.ws_config.host
+        self.port = port or self.ws_config.port
 
         self._send_queue: queue.Queue[WebSocketCommand] = queue.Queue(
-            maxsize=Config.WS_SEND_QUEUE_MAX
+            maxsize=self.ws_config.send_queue_max
         )
         self._recv_queue: queue.Queue[WebSocketCommand] = queue.Queue(
-            maxsize=Config.WS_RECV_QUEUE_MAX
+            maxsize=self.ws_config.recv_queue_max
         )
 
         self.ws_server: Server | None = None

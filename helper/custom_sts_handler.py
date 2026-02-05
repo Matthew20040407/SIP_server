@@ -4,8 +4,10 @@ import logging
 import time
 import wave
 from pathlib import Path
+from typing import Literal
 
 import langid
+import torch
 from faster_whisper import WhisperModel
 from piper import PiperVoice
 
@@ -18,8 +20,8 @@ class Speech2Text:
     def __init__(
         self,
         model_size: str = "large-v3",
-        device: str = "cuda",
-        compute_type: str = "float16",
+        device: Literal["cuda", "cpu"] = "cpu",
+        compute_type: Literal["float16", "int8"] = "int8",
     ) -> None:
         """
         Initialize the model. This is slow, so do it once.
@@ -30,10 +32,11 @@ class Speech2Text:
             compute_type: "float16" (GPU) or "int8" (CPU)
         """
         self.logger = logging.getLogger(__name__)
+        self.logger.info(f"{torch.cuda.is_available()=}")
         self.logger.info(f"Initializing Whisper model: {model_size} on {device}")
         start_time = time.time()
 
-        self.model = WhisperModel(model_size, device="cuda", compute_type=compute_type)
+        self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
 
         init_time = time.time() - start_time
         self.logger.info(f"Model loaded in {init_time:.2f}s")

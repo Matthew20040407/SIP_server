@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>呼叫中心對話監控</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: "Microsoft JhengHei", "PingFang TC", sans-serif;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        min-height: 100vh;
+        color: #fff;
+      }
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      header {
+        text-align: center;
+        padding: 20px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        margin-bottom: 20px;
+      }
+      header h1 {
+        font-size: 24px;
+        font-weight: 500;
+        color: #00d4ff;
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: 14px;
+        color: #888;
+      }
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ff4444;
+        transition: background 0.3s;
+      }
+      .status-dot.connected {
+        background: #00ff88;
+        box-shadow: 0 0 10px #00ff88;
+      }
+      .chat-container {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 12px;
+        padding: 20px;
+        height: calc(100vh - 200px);
+        overflow-y: auto;
+      }
+      .message {
+        display: flex;
+        margin-bottom: 16px;
+        animation: fadeIn 0.3s ease;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .message.user {
+        justify-content: flex-end;
+      }
+      .message.assistant {
+        justify-content: flex-start;
+      }
+      .message-bubble {
+        max-width: 70%;
+        padding: 12px 16px;
+        border-radius: 16px;
+        position: relative;
+      }
+      .message.user .message-bubble {
+        background: linear-gradient(135deg, #0066ff 0%, #0044cc 100%);
+        border-bottom-right-radius: 4px;
+      }
+      .message.assistant .message-bubble {
+        background: linear-gradient(135deg, #2d2d44 0%, #1f1f33 100%);
+        border-bottom-left-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .message-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+        font-size: 12px;
+        opacity: 0.7;
+      }
+      .message-role {
+        font-weight: 500;
+      }
+      .message-content {
+        font-size: 15px;
+        line-height: 1.5;
+        word-wrap: break-word;
+      }
+      .call-id {
+        font-size: 11px;
+        color: #00d4ff;
+        margin-top: 6px;
+      }
+      .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #666;
+      }
+      .empty-state svg {
+        width: 80px;
+        height: 80px;
+        margin-bottom: 20px;
+        opacity: 0.3;
+      }
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>呼叫中心對話監控</h1>
+        <div class="status">
+          <div class="status-dot" id="statusDot"></div>
+          <span id="statusText">正在連線...</span>
+        </div>
+      </header>
+      <div class="chat-container" id="chatContainer">
+        <div class="empty-state" id="emptyState">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+            />
+          </svg>
+          <p>等待對話訊息...</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const chatContainer = document.getElementById("chatContainer");
+      const emptyState = document.getElementById("emptyState");
+      const statusDot = document.getElementById("statusDot");
+      const statusText = document.getElementById("statusText");
+
+      const MAX_MESSAGES = 100;
+      let ws;
+      let reconnectAttempts = 0;
+      const maxReconnectAttempts = 10;
+
+      function connect() {
+        // 清理舊連線
+        if (ws) {
+          ws.close();
+          ws = null;
+        }
+
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+        ws.onopen = function () {
+          statusDot.classList.add("connected");
+          statusText.textContent = "已連線";
+          reconnectAttempts = 0;
+        };
+
+        ws.onclose = function () {
+          statusDot.classList.remove("connected");
+          statusText.textContent = "連線中斷，正在重連...";
+
+          if (reconnectAttempts < maxReconnectAttempts) {
+            // 指數退避：1s, 2s, 4s, 8s, 16s, 最多30s
+            const delay = Math.min(
+              1000 * Math.pow(2, reconnectAttempts),
+              30000,
+            );
+            reconnectAttempts++;
+            setTimeout(connect, delay);
+          } else {
+            statusText.textContent = "連線失敗，請重新整理頁面";
+          }
+        };
+
+        ws.onerror = function () {
+          statusDot.classList.remove("connected");
+        };
+
+        ws.onmessage = function (event) {
+          const message = JSON.parse(event.data);
+          addMessage(message);
+        };
+      }
+
+      function addMessage(msg) {
+        if (emptyState && emptyState.parentNode) {
+          emptyState.remove();
+        }
+
+        // 訊息數量限制
+        if (chatContainer.children.length >= MAX_MESSAGES) {
+          chatContainer.removeChild(chatContainer.firstChild);
+        }
+
+        const roleLabel = msg.role === "user" ? "使用者" : "AI 助理";
+        const timestamp = new Date(msg.timestamp).toLocaleTimeString("zh-TW");
+
+        const messageDiv = document.createElement("div");
+        messageDiv.className = `message ${msg.role}`;
+        messageDiv.innerHTML = `
+                <div class="message-bubble">
+                    <div class="message-header">
+                        <span class="message-role">${roleLabel}</span>
+                        <span class="message-time">${timestamp}</span>
+                    </div>
+                    <div class="message-content">${escapeHtml(msg.content)}</div>
+                    <div class="call-id">通話 ID: ${msg.call_id.substring(0, 8)}...</div>
+                </div>
+            `;
+
+        chatContainer.appendChild(messageDiv);
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      connect();
+    </script>
+  </body>
+</html>

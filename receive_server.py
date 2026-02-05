@@ -28,11 +28,11 @@ class RelayServer:
         sip_server_ip: str = "192.168.1.170",
     ):
         self.sip_config = SIPConfig()
-        self.host = self.sip_config.sip_local_ip
-        self.recv_port = self.sip_config.sip_local_port
-        self.transf_port = self.sip_config.sip_transfer_port
-        self.local_ip = self.sip_config.sip_local_ip
-        self.sip_server_ip = self.sip_config.sip_server_ip
+        self.host = self.sip_config.local_ip
+        self.recv_port = self.sip_config.local_port
+        self.transf_port = self.sip_config.transfer_port
+        self.local_ip = self.sip_config.local_ip
+        self.sip_server_ip = self.sip_config.server_ip
 
         self.logger = logging.getLogger("SIPServer")
 
