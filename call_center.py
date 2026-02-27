@@ -156,6 +156,10 @@ async def main() -> None:
 
                     wav_path = None
                     response_audio_path = Path(f"./output/response/{uuid4()}.wav")
+
+                    if not response_audio_path.parent.exists():
+                        response_audio_path.parent.mkdir(parents=True, exist_ok=True)
+
                     try:
                         wav_path = wav_handler.hex2wav(session.flush(), session.codec)
                         logger.info(f"WAV file converted at {wav_path}")
