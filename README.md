@@ -139,6 +139,10 @@ SIP_server_v2/
 
 - **Python 3.12+**
 - **CUDA 12.x** (for GPU acceleration of ML models)
+- **cuDNN 9** (for deep learning model acceleration):
+  ```bash
+  apt-get install libcudnn9-cuda-12=9.5.1.17-1
+  ```
 - **FFmpeg** (for audio conversion)
 - Sufficient disk space for voice models (~500MB+)
 
