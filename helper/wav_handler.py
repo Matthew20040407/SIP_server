@@ -87,9 +87,7 @@ class WavHandler:
         codec: PayloadType = PayloadType.PCMA,
         output_wav_path: Path | None = None,
     ) -> Path:
-        output_path = output_path = output_wav_path or Path(
-            f"./output/converted/{uuid4()}.wav"
-        )
+        output_path = output_wav_path or Path(f"./output/converted/{uuid4()}.wav")
 
         pcm_data = b"".join(self.hex2pcm(list_of_bytes, codec))
 
