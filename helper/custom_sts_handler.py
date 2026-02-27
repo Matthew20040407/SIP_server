@@ -20,8 +20,8 @@ class Speech2Text:
     def __init__(
         self,
         model_size: str = "large-v3",
-        device: Literal["cuda", "cpu"] = "cpu",
-        compute_type: Literal["float16", "int8"] = "int8",
+        device: Literal["cuda", "cpu"] = "cuda",
+        compute_type: Literal["float16", "int8"] = "float16",
     ) -> None:
         """
         Initialize the model. This is slow, so do it once.
@@ -32,11 +32,18 @@ class Speech2Text:
             compute_type: "float16" (GPU) or "int8" (CPU)
         """
         self.logger = logging.getLogger(__name__)
-        self.logger.info(f"{torch.cuda.is_available()=}")
+
+        has_cuda = torch.cuda.is_available()
+        self.logger.info(f"{has_cuda=}")
+
         self.logger.info(f"Initializing Whisper model: {model_size} on {device}")
         start_time = time.time()
 
-        self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        self.model = WhisperModel(
+            model_size,
+            device=has_cuda and device or "cpu",
+            compute_type=has_cuda and compute_type or "int8",
+        )
 
         init_time = time.time() - start_time
         self.logger.info(f"Model loaded in {init_time:.2f}s")

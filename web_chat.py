@@ -22,12 +22,12 @@ class ChatMessage(BaseModel):
 
 
 class ChatBroadcaster:
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_connections: Set[WebSocket] = set()
         self.messages: list[ChatMessage] = []
         self.max_messages = 100
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self.active_connections.add(websocket)
         # Send existing messages to new connection
@@ -37,7 +37,7 @@ class ChatBroadcaster:
     def disconnect(self, websocket: WebSocket):
         self.active_connections.discard(websocket)
 
-    async def broadcast(self, message: ChatMessage):
+    async def broadcast(self, message: ChatMessage) -> None:
         self.messages.append(message)
         if len(self.messages) > self.max_messages:
             self.messages = self.messages[-self.max_messages :]
@@ -53,7 +53,7 @@ class ChatBroadcaster:
         for conn in disconnected:
             self.active_connections.discard(conn)
 
-    def add_message_sync(self, message: ChatMessage):
+    def add_message_sync(self, message: ChatMessage) -> None:
         """Thread-safe method to add message from sync context"""
         self.messages.append(message)
         if len(self.messages) > self.max_messages:
