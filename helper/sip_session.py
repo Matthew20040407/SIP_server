@@ -317,6 +317,7 @@ class SIPRTPSession:
 
         # Step 3: Create RTPHandle
         self.rtp_handle = RTPHandler(
+            local_ip=self.local_ip,
             local_port=self.local_send_port,
             remote_recv_addr=(self.params.remote_ip, self.params.remote_port),
             ssrc=randbits(32),
