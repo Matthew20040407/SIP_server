@@ -89,6 +89,9 @@ class WavHandler:
     ) -> Path:
         output_path = output_wav_path or Path(f"./output/converted/{uuid4()}.wav")
 
+        if not output_path.parent.exists():
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
         pcm_data = b"".join(self.hex2pcm(list_of_bytes, codec))
 
         with wave.open(str(output_path), "wb") as wav:

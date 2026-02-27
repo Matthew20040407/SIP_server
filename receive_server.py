@@ -464,6 +464,9 @@ class RelayServer:
             filename = f"{timestamp}_{call_id[:8]}.wav"
             output_path = Path("./recording") / filename
 
+            if not output_path.parent.exists():
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+
             session.stop_and_save(output_path)
 
             self.logger.info(f"> Saved recording to {output_path}")
