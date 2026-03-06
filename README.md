@@ -262,9 +262,33 @@ RTP_RECV_QUEUE_MAX=500
 
 ## Usage
 
-### Running the SIP Server
+### Running Both Servers (Recommended)
 
-Start the main server (SIP + WebSocket):
+Start both servers together using the provided script:
+
+```bash
+./run.sh
+```
+
+This starts `receive_server.py` and `call_center.py` in the background and prints their PIDs:
+
+```text
+receive_server.py PID: 12345
+call_center.py PID: 12346
+All servers started
+```
+
+Both processes are automatically killed when the script exits (Ctrl+C or SIGTERM).
+
+To kill a specific server manually:
+
+```bash
+kill <PID>
+```
+
+### Running Servers Individually
+
+Start only the SIP server (SIP + WebSocket):
 
 ```bash
 uv run receive_server.py
@@ -277,9 +301,7 @@ This initializes:
 - Configuration validation
 - Logging setup
 
-### Running the Call Center (AI Mode)
-
-In a separate terminal, start the AI call processing:
+Start only the Call Center (AI Mode):
 
 ```bash
 uv run call_center.py
