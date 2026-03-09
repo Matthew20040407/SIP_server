@@ -47,9 +47,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
     && ln -sf /usr/bin/python3.12 /usr/local/bin/python3
 
-# Create non-root user for security
-RUN useradd -m -u 1001 sipserver
-
 # Set working directory
 WORKDIR /app
 
@@ -72,9 +69,6 @@ RUN mkdir -p /app/output/transcode /app/output/response /app/output/converted /a
 
 # Ensure voices directory exists (should be volume-mounted or copied)
 RUN mkdir -p /app/voices && chown -R sipserver:sipserver /app/voices
-
-# Switch to non-root user
-USER sipserver
 
 # Health check - verify Python and key modules are importable
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

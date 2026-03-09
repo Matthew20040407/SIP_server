@@ -8,12 +8,12 @@ services:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
-      - SIP_LOCAL_IP=${SIP_LOCAL_IP:-0.0.0.0}
-      - WS_HOST=${WS_HOST:-0.0.0.0}
-      - LOGGING_SIP_LOG_FILE=/app/output/sip_server.log
-      - LOGGING_CALL_CENTER_LOG_FILE=/app/output/call_center.log
-      - LLM_BACKEND_API_URL=http://localhost:8002
-      - LLM_BACKEND_API_VERSION=1
+      # - SIP_LOCAL_IP=${SIP_LOCAL_IP:-0.0.0.0}
+      # - WS_HOST=${WS_HOST:-0.0.0.0}
+      # - LOGGING_SIP_LOG_FILE=/app/output/sip_server.log
+      # - LOGGING_CALL_CENTER_LOG_FILE=/app/output/call_center.log
+      # - LLM_BACKEND_API_URL=http://localhost:8002
+      # - LLM_BACKEND_API_VERSION=1
 
     # Network mode: host is required for SIP/RTP to work properly
     # SIP/RTP requires symmetric NAT traversal and direct UDP port access
