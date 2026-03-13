@@ -94,5 +94,10 @@ class LLMServerConfig(BaseSettings):
     model_config = config_factory("OPENAI_")
 
 
+class CacheServerConfig(BaseSettings):
+    host: str = "http://localhost:8000"
+    model_config = config_factory("CACHE_SERVER_")
+
+
 if __name__ == "__main__":
     print(SIPConfig().model_dump())

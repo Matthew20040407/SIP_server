@@ -226,6 +226,7 @@ class Text2Speech:
         return lang, confidence
 
 
+# test
 async def main() -> None:
     import sys
 
