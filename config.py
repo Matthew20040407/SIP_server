@@ -91,7 +91,7 @@ class LLMServerConfig(BaseSettings):
     api_url: str = "http://localhost:8002"
     api_version: int = 1
 
-    model_config = config_factory("OPENAI_")
+    model_config = config_factory("LLM_BACKEND_")
 
 
 class CacheServerConfig(BaseSettings):
