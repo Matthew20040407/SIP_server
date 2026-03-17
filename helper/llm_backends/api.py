@@ -41,7 +41,6 @@ class APIBackend(LLMBackend):
         self.logger = logging.getLogger("LLMBackend")
         start_time = time.time()
 
-        self.logger = logging.getLogger(__name__)
         self.timeout = timeout
         self.llm_endpoint_url = server_endpoint_url
         self.api_version = api_version if api_version is not None else 1
@@ -156,7 +155,7 @@ class CacheServerAPIBackend(LLMBackend):
             )
             res.raise_for_status()
             self.logger.info(f"Chat response: {res.headers}")
-            return res.json().get("llm_response", "No response")
+            return res.json().get("llm_response", "No response")["response"]
         except Exception as e:
             self.logger.error(f"Chat failed: {e}", exc_info=True)
             return "Sorry, something went wrong."
