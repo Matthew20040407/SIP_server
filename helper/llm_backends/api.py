@@ -166,6 +166,7 @@ class CacheServerAPIBackend(LLMBackend):
                 language=language,
             ).model_dump(mode="json")
             request["style"] = ResponseStyle.CONCISE
+            self.logger.info(f"Sending request to cache server: {request}")
 
             res = await self.http_client.post(
                 f"{self.server_endpoint_url}/generate/concise",
