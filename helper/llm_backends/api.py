@@ -137,19 +137,19 @@ class CacheServerAPIBackend(LLMBackend):
         if language == "zh":
             message = (
                 messages[0]["content"]
-                + f"/no_think\n您必須使用此語言進行輸出:{language} \n用戶提問:"
+                + "您必須使用中文作為輸出語言 \n用戶提問:"
                 + messages[-1]["content"]
             )
         elif language == "en":
             message = (
                 messages[0]["content"]
-                + f"/no_think\nYou must respond in this language:{language} \nUser question:"
+                + "You must respond in English \nUser question:"
                 + messages[-1]["content"]
             )
         else:
             message = (
                 messages[0]["content"]
-                + f"/no_think\n您必須使用此語言進行輸出:{language} \n用戶提問:"
+                + f"您必須使用此語言進行輸出:{language} \n用戶提問:"
                 + messages[-1]["content"]
             )
 
