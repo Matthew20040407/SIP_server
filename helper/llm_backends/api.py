@@ -163,7 +163,7 @@ class CacheServerAPIBackend(LLMBackend):
             raise ValueError("Missing user_id")
         try:
             request = PostChatMessageRequest(
-                question=message if message else "",
+                question=messages[-1]["content"] if messages[-1]["content"] else "",
                 session_id=user_id,
                 user_id=user_id,
                 language=language,
