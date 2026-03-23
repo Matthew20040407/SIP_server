@@ -134,38 +134,6 @@ class CacheServerAPIBackend(LLMBackend):
         self.logger.info(messages)
         user_id = kwargs.get("user_id")
 
-        prompt_mapping = {
-            "zh": "您必須使用中文作為輸出語言 \n用戶提問:",
-            "en": "You must respond in English \nUser question:",
-            "other": "您必須使用此語言進行輸出:{language} \n用戶提問:",
-        }
-        query_prompt = prompt_mapping.get(language, prompt_mapping["other"]).format(
-            language=language
-        )
-        message = messages[0]["content"] + query_prompt + messages[-1]["content"]
-
-        # if language == "zh":
-        #     message = (
-        #         messages[0]["content"]
-        #         + "您必須使用中文作為輸出語言 \n"
-        #         + "您必須使用中文作為輸出語言 \n用戶提問:"
-        #         + messages[-1]["content"]
-        #     )
-        # elif language == "en":
-        #     message = (
-        #         messages[0]["content"]
-        #         + "You must respond in English"
-        #         + "You must respond in English \nUser question:"
-        #         + messages[-1]["content"]
-        #     )
-        # else:
-        #     message = (
-        #         messages[0]["content"]
-        #         + f"您必須使用此語言進行輸出:{language} \n"
-        #         + f"您必須使用此語言進行輸出:{language} \n用戶提問:"
-        #         + messages[-1]["content"]
-        #     )
-
         if not self.http_client:
             raise RuntimeError("Client not started")
 
@@ -173,7 +141,7 @@ class CacheServerAPIBackend(LLMBackend):
             raise ValueError("Missing user_id")
         try:
             request = PostChatMessageRequest(
-                question=message,
+                question=messages[-1]["content"] if messages[-1]["content"] else "",
                 session_id=user_id,
                 user_id=user_id,
                 language=language,
