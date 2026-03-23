@@ -131,7 +131,9 @@ class CacheServerAPIBackend(LLMBackend):
         language: str = "zh",
         **kwargs,
     ) -> str:
-        self.logger.info(messages)
+        _log_message = f"Generating response for user_id={kwargs.get('user_id')} with language={language}. Messages: {messages[-1]['content']}"
+
+        self.logger.info(_log_message)
         user_id = kwargs.get("user_id")
 
         if not self.http_client:
