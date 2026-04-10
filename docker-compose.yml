@@ -1,6 +1,6 @@
 services:
   sip-server:
-    image: sip-server-v2:latest
+    image: sip-server-v2:${IMAGE_TAG:-latest}
     container_name: sip-server
     restart: unless-stopped
 
