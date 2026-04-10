@@ -3,17 +3,40 @@
 import logging
 import time
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 
+import langid
 import soundfile as sf
 import torch
-from faster_whisper import WhisperModel
-from qwen_tts import Qwen3TTSModel
+from transformers import pipeline
 
 torch.set_float32_matmul_precision("high")
 
 
-class Speech2Text:
+class S2T(Protocol):
+    def transcribe(
+        self,
+        audio_path: str | Path,
+        beam_size: int = 5,
+        vad_filter: bool = True,
+        language: str | None = None,
+    ) -> tuple[str, str]: ...
+
+
+class T2S(Protocol):
+    def generate(
+        self,
+        text: str,
+        output_path: str | Path,
+        lang: str = "",
+        top_k: int = 20,
+        top_p: float = 0.5,
+        temperature: float = 0.3,
+        max_new_tokens: int = 1024,
+    ) -> None: ...
+
+
+class STT_Whisper:
     def __init__(
         self,
         model_size: str = "large-v3",
@@ -28,6 +51,12 @@ class Speech2Text:
             device: "cuda" or "cpu" - don't use "auto", tell me what you want
             compute_type: "float16" (GPU) or "int8" (CPU)
         """
+        try:
+            from faster_whisper import (
+                WhisperModel,  # type: ignore[reportMissingImports]
+            )
+        except ImportError:
+            return
         self.logger = logging.getLogger(__name__)
 
         has_cuda = torch.cuda.is_available()
@@ -141,7 +170,67 @@ class Speech2Text:
         return result
 
 
-class Text2Speech:
+class STT_VibeVoice:
+    MODEL_ID = "microsoft/VibeVoice-ASR"
+
+    def __init__(
+        self,
+        device: Literal["cuda", "cpu"] = "cuda",
+    ) -> None:
+        self.logger = logging.getLogger(__name__)
+
+        resolved_device = device if torch.cuda.is_available() else "cpu"
+        self.logger.info(f"Initializing VibeVoice-ASR on {resolved_device}")
+        start_time = time.time()
+
+        self.pipe = pipeline(
+            "automatic-speech-recognition",
+            model=self.MODEL_ID,
+            device=resolved_device,
+        )
+
+        self.logger.info(f"Model loaded in {time.time() - start_time:.2f}s")
+
+    def transcribe(
+        self,
+        audio_path: str | Path,
+        beam_size: int = 5,
+        vad_filter: bool = True,
+        language: str | None = None,
+    ) -> tuple[str, str]:
+        """
+        Convert audio to text.
+
+        Args:
+            audio_path: Path to audio file
+
+        Returns:
+            (transcribed_text, detected_language_code)
+
+        Raises:
+            FileNotFoundError: If audio file doesn't exist
+        """
+
+        if not Path(audio_path).exists():
+            self.logger.error(f"Audio file not found: {audio_path}")
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+        self.logger.info(f"Transcribing: {audio_path}")
+        start_time = time.time()
+
+        result: dict = self.pipe(str(audio_path))  # type: ignore[assignment]
+        text = result["text"].strip()
+        lang, _ = langid.classify(text)
+
+        self.logger.info(
+            f"Transcription complete in {time.time() - start_time:.2f}s "
+            f"(detected language: {lang})"
+        )
+
+        return text, lang
+
+
+class TTS_Qwen3:
     MODEL_ID = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 
     def __init__(
@@ -152,6 +241,11 @@ class Text2Speech:
         language: str = "Chinese",
         instruct: str = "用溫柔親切的客服語氣說",
     ):
+        try:
+            from qwen_tts import Qwen3TTSModel  # type: ignore[reportMissingImports]
+        except ImportError:
+            return
+
         self.logger = logging.getLogger("TTS")
         self.speaker = speaker
         self.language = language
@@ -171,6 +265,7 @@ class Text2Speech:
         self,
         text: str,
         output_path: str | Path,
+        lang: str = "",
         top_k: int = 20,
         top_p: float = 0.5,
         temperature: float = 0.3,
@@ -180,8 +275,8 @@ class Text2Speech:
         start_time = time.time()
 
         wavs, sr = self.model.generate_custom_voice(
-            text=text,
-            language=self.language,
+            text="".join(char for char in text if char.isalnum()),
+            language=lang if lang else self.language,
             speaker=self.speaker,
             instruct=self.instruct,
             top_k=top_k,
@@ -217,14 +312,14 @@ async def main() -> None:
     logger.addHandler(console_handler)
 
     # llm_backend = APIBackend(system_prompt=SYSTEM_PROMPT)
-    # stt = Speech2Text()
+    stt: S2T = STT_VibeVoice()
     # llm = LLM(backend=llm_backend)
-    tts = Text2Speech()
+    tts: T2S = TTS_Qwen3()
 
     print("Start testing...")
-    # st_time = time.time()
-    # incoming_voice, _ = stt.transcribe("./audio.wav")
-    # print(f"Transcription time: {time.time() - st_time:.2f}s")
+    st_time = time.time()
+    incoming_voice, _ = stt.transcribe("./audio.wav")
+    print(f"Transcription time: {time.time() - st_time:.2f}s")
 
     # st_time = time.time()
     # response = await llm.generate_response(incoming_voice, user_id=1234)
@@ -232,7 +327,7 @@ async def main() -> None:
     # print(f"LLM time: {time.time() - st_time:.2f}s")
 
     st_time = time.time()
-    tts.generate("可以再多介绍一下自己吗", "./output/response/demo1.wav")
+    tts.generate("請您自我介紹一下好嗎", "./output/response/demo1.wav")
     print(f"TTS time: {time.time() - st_time:.2f}s")
 
     # st_time = time.time()

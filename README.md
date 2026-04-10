@@ -23,7 +23,6 @@ A Python-based SIP relay server with advanced AI integration for intelligent voi
   - OpenAI Backend (GPT-4o-mini)
 - **Voice Activity Detection (VAD)** - Silero VAD for speech boundary detection
 
-
 ### Integration & Control
 
 - **WebSocket Interface** - Bi-directional control and audio transmission
@@ -52,8 +51,8 @@ A Python-based SIP relay server with advanced AI integration for intelligent voi
 │         ┌──────────────────────────┼──────────────────────┐     │
 │         │                          │                      │     │
 │  ┌──────▼──────┐  ┌────────────────▼───────┐  ┌───────────▼─┐   │
-│  │ RTPHandler  │  │    VADHandler          │  │ SIPParsers  │   │
-│  │ (Audio I/O) │  │ (Voice Activity Detect)│  │ (SIP/SDP)   │   │
+│  │  RTPHandler │  │        VADHandler      │  │  SIPParsers │   │
+│  │ (Audio I/O) │  │ (Voice Activity Detect)│  │  (SIP/SDP)  │   │
 │  └──────┬──────┘  └────────────────────────┘  └─────────────┘   │
 │         │                                                       │
 │  ┌──────▼──────────────────────────────────┐                    │
@@ -65,7 +64,7 @@ A Python-based SIP relay server with advanced AI integration for intelligent voi
 │  │     Call Center (AI Mode)               │                    │
 │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐    │                    │
 │  │  │   STT   │ │   LLM   │ │   TTS   │    │                    │
-│  │  │(Whisper)│ │(Backend)│ │(Qwen3)  │    │                    │
+│  │  │(Whisper)│ │(Backend)│ │ (Qwen3) │    │                    │
 │  │  └─────────┘ └─────────┘ └─────────┘    │                    │
 │  └─────────────────────────────────────────┘                    │
 │                                                                 │
@@ -117,11 +116,6 @@ SIP_server_v2/
 │   ├── rtp.py                 # RTP packet models
 │   ├── ws_command.py          # WebSocket command models
 │   └── call_status.py         # Call state enums
-│
-├── voices/                    # Piper TTS voice models
-│   ├── en/                    # English voices
-│   ├── zh/                    # Chinese voices
-│   └── .../                   # Other languages
 │
 ├── output/
 │   ├── transcode/             # Greeting audio (greeting.wav)

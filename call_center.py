@@ -10,9 +10,9 @@ import webrtcvad
 from websockets.sync.client import connect
 
 from config import LLMServerConfig, LoggingConfig, WebSocketConfig
-from helper.custom_sts_handler import LLM, Speech2Text, Text2Speech
-
+from helper.custom_sts_handler import STT_VibeVoice, TTS_Qwen3
 from helper.llm_backends.api import CacheServerAPIBackend
+from helper.llm_backends.llm_backend import LLM
 from helper.PROMPT import SYSTEM_PROMPT
 from helper.wav_handler import WavHandler
 from helper.ws_command import WSCommandHelper
@@ -99,8 +99,8 @@ async def main() -> None:
     )
 
     llm_handler = LLM(llm_backend)
-    stt = Speech2Text()
-    tts = Text2Speech()
+    stt = STT_VibeVoice()
+    tts = TTS_Qwen3()
 
     command_handler = {
         CommandType.CALL_ANS: handle_ans,
