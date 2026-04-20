@@ -15,6 +15,3 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src/ /app/src
 
 RUN uv sync --frozen --no-dev
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import webrtcvad; import websockets; import pydantic; print('OK')" || exit 1
