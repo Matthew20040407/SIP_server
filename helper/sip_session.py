@@ -42,15 +42,15 @@ class RTPSessionParams:
         logger = logging.getLogger("RTPSessionParams")
         logger.info(sdp)
 
-        if not sdp.media_descriptions:
+        if not sdp.m:
             raise ValueError("No media descriptions in SDP")
 
-        if sdp.connection_info:
-            sdp_connection_info = sdp.connection_info
-        elif sdp.media_descriptions[0].connection_info:
-            sdp_connection_info = sdp.media_descriptions[0].connection_info
+        if sdp.c:
+            sdp_connection_info = sdp.c
+        elif sdp.m[0].c:
+            sdp_connection_info = sdp.m[0].c
         else:
-            logger.info(sdp.media_descriptions[0].connection_info)
+            logger.info(sdp.m[0].c)
             raise ValueError("No connection_info in SDP")
 
         conn_parts = sdp_connection_info.split()
@@ -60,24 +60,24 @@ class RTPSessionParams:
         remote_ip = conn_parts[2]
 
         # Step 2: Get media description (first audio stream)
-        if not sdp.media_descriptions:
+        if not sdp.m:
             raise ValueError("No media descriptions in SDP")
 
-        audio_media = sdp.media_descriptions[0]
+        audio_media = sdp.m[0]
 
         # Media-level connection_info overrides session-level
-        if audio_media.connection_info:
-            media_conn = audio_media.connection_info.split()
+        if audio_media.c:
+            media_conn = audio_media.c.split()
             remote_ip = media_conn[2]
 
         # Step 3: Parse media line
         # Format: "audio 4000 RTP/AVP 0 8 96"
         #          ^     ^    ^       ^^^^^^^
         #          type  port proto   payload types
-        media_parts = audio_media.media.split()
+        media_parts = audio_media.m.split()
 
         if len(media_parts) < 4:
-            raise ValueError(f"Invalid media line: {audio_media.media}")
+            raise ValueError(f"Invalid media line: {audio_media.m}")
 
         media_type = media_parts[0]
         if media_type != "audio":
@@ -92,8 +92,8 @@ class RTPSessionParams:
         codec = cls._get_codec_name(payload_type)
         sample_rate = 8000  # Default
 
-        if audio_media.attributes:
-            for attr in audio_media.attributes:
+        if audio_media.a:
+            for attr in audio_media.a:
                 if attr.startswith("rtpmap:"):
                     rtpmap_value = attr.split(":", 1)[1]
                     pt_str, codec_info = rtpmap_value.split(" ", 1)
