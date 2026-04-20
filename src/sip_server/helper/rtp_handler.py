@@ -16,9 +16,9 @@ import torch
 from pydub import AudioSegment
 from silero_vad import load_silero_vad
 
-from helper.ws_helper import ws_server
-from model.rtp import PayloadType, RTPPacket
-from model.ws_command import CommandType
+from sip_server.helper.ws_helper import ws_server
+from sip_server.model.rtp import PayloadType, RTPPacket
+from sip_server.model.ws_command import CommandType
 
 
 class VADHandler:

@@ -8,14 +8,14 @@ import time
 import uuid
 from pathlib import Path
 
-from config import LoggingConfig, SIPConfig
-from helper.sip_parsers import SipMessageParser
-from helper.sip_session import SIPRTPSession
-from helper.wav_handler import WavHandler
-from helper.ws_command import WSCommandHelper
-from helper.ws_helper import ws_server
-from model.sip_message import SDPMessage, SIPMethod, SIPRequest, SIPResponse
-from model.ws_command import CommandType, WebSocketCommand
+from sip_server.config import LoggingConfig, SIPConfig
+from sip_server.helper.sip_parsers import SipMessageParser
+from sip_server.helper.sip_session import SIPRTPSession
+from sip_server.helper.wav_handler import WavHandler
+from sip_server.helper.ws_command import WSCommandHelper
+from sip_server.helper.ws_helper import ws_server
+from sip_server.model.sip_message import SDPMessage, SIPMethod, SIPRequest, SIPResponse
+from sip_server.model.ws_command import CommandType, WebSocketCommand
 
 
 class RelayServer:

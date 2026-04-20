@@ -6,9 +6,9 @@ import threading
 
 from websockets.sync.server import Server, ServerConnection, serve
 
-from config import WebSocketConfig
-from helper.ws_command import WSCommandHelper
-from model.ws_command import WebSocketCommand
+from sip_server.config import WebSocketConfig
+from sip_server.helper.ws_command import WSCommandHelper
+from sip_server.model.ws_command import WebSocketCommand
 
 
 class WebsocketServer:

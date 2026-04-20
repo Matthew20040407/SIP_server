@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from secrets import randbelow, randbits
 
-from helper.rtp_handler import RTPHandler
-from model.rtp import PayloadType
-from model.sip_message import MediaDescription, SDPMessage, TimeDescription
+from sip_server.helper.rtp_handler import RTPHandler
+from sip_server.model.rtp import PayloadType
+from sip_server.model.sip_message import MediaDescription, SDPMessage, TimeDescription
 
 
 @dataclass

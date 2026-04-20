@@ -3,7 +3,7 @@
 import logging
 import re
 
-from model.ws_command import CommandType, WebSocketCommand
+from sip_server.model.ws_command import CommandType, WebSocketCommand
 
 
 class WSCommandHelper:

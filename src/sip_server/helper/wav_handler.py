@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from pydub import AudioSegment
 
-from model.rtp import PayloadType
+from sip_server.model.rtp import PayloadType
 
 
 class WavHandler:

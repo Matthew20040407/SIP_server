@@ -13,8 +13,6 @@ COPY ./pyproject.toml ./uv.lock ./README.md /app/
 
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY src/ /app/src
-
 RUN uv sync --frozen --no-dev
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
