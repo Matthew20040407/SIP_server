@@ -12,7 +12,7 @@ COPY ./pyproject.toml ./uv.lock ./README.md /app/
 
 RUN uv sync --frozen --no-dev --no-install-project
 
-RUN apt install ffmpeg
+RUN apt install ffmpeg -y
 
 COPY src/ /app/src
 
