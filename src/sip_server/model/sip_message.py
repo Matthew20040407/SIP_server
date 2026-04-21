@@ -62,12 +62,12 @@ class TimeDescription(BaseModel):
 class MediaDescription(BaseModel):
     """Represents one media description block: 'm=' through optional attributes."""
 
-    m: str = Field(default=..., alias="media")
-    i: str | None = Field(default=None, alias="title")
-    c: str | None = Field(default=None, alias="connection_info")
-    b: list[str] | None = Field(default=None, alias="bandwidth_info")
-    k: str | None = Field(default=None, alias="encryption_key")
-    a: list[str] | None = Field(default=None, alias="attributes")
+    media: str = Field(..., alias="m")
+    title: str | None = Field(default=None, alias="i")
+    connection_info: str | None = Field(default=None, alias="c")
+    bandwidth_info: list[str] | None = Field(default=None, alias="b")
+    encryption_key: str | None = Field(default=None, alias="k")
+    attributes: list[str] | None = Field(default=None, alias="a")
 
 
 class SDPMessage(BaseModel):
@@ -75,21 +75,21 @@ class SDPMessage(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    v: int = Field(default=0, alias="version")
-    o: str = Field(default=..., alias="origin")
-    s: str = Field(default="-", alias="session_name")
+    version: int = Field(default=0, alias="v")
+    origin: str = Field(..., alias="o")
+    session_name: str = Field(default="-", alias="s")
 
-    i: str | None = Field(default=None, alias="title")
-    u: str | None = Field(default=None, alias="uri")
-    e: list[str] | None = Field(default=None, alias="email")
-    p: list[str] | None = Field(default=None, alias="phone")
-    c: str | None = Field(default=None, alias="connection_info")
-    b: list[str] | None = Field(default=None, alias="bandwidth_info")
-    t: list[TimeDescription] = Field(default=..., alias="time_descriptions")
-    z: str | None = Field(default=None, alias="timezone_adjustments")
-    k: str | None = Field(default=None, alias="encryption_key")
-    a: list[str] | None = Field(default=None, alias="attributes")
-    m: list[MediaDescription] | None = Field(default=None, alias="media_descriptions")
+    title: str | None = Field(default=None, alias="i")
+    uri: str | None = Field(default=None, alias="u")
+    email: list[str] | None = Field(default=None, alias="e")
+    phone: list[str] | None = Field(default=None, alias="p")
+    connection_info: str | None = Field(default=None, alias="c")
+    bandwidth_info: list[str] | None = Field(default=None, alias="b")
+    time_descriptions: list[TimeDescription] = Field(..., alias="t")
+    timezone_adjustments: str | None = Field(default=None, alias="z")
+    encryption_key: str | None = Field(default=None, alias="k")
+    attributes: list[str] | None = Field(default=None, alias="a")
+    media_descriptions: list[MediaDescription] | None = Field(default=None, alias="m")
 
 
 class SIPRequest(BaseModel):
@@ -110,5 +110,5 @@ class SIPMessage(BaseModel):
     body: str | SDPMessage
 
 
-class SIPMessageStatus(BaseModel):
+class SIPMessageStatus(StrEnum):
     type: SIPMethod
