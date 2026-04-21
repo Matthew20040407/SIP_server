@@ -599,19 +599,19 @@ class RelayServer:
         """
         lines = []
 
-        lines.append(f"v={sdp.v}")
-        lines.append(f"o={sdp.o}")
-        lines.append(f"s={sdp.s}")
+        lines.append(f"v={sdp.version}")
+        lines.append(f"o={sdp.origin}")
+        lines.append(f"s={sdp.session_name}")
 
-        if sdp.c:
-            lines.append(f"c={sdp.c}")
+        if sdp.connection_info:
+            lines.append(f"c={sdp.connection_info}")
 
-        for td in sdp.t:
+        for td in sdp.time_descriptions:
             lines.append(f"t={td.active_times}")
 
-        if sdp.m:
-            for md in sdp.m:
-                lines.append(f"m={md.m}")
+        if sdp.media_descriptions:
+            for md in sdp.media_descriptions:
+                lines.append(f"m={md.media}")
                 lines.append("a=rtpmap:0 PCMA/8000")
 
         lines.append("a=sendrecv")
