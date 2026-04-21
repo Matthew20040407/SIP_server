@@ -62,6 +62,8 @@ class TimeDescription(BaseModel):
 class MediaDescription(BaseModel):
     """Represents one media description block: 'm=' through optional attributes."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     media: str = Field(..., alias="m")
     title: str | None = Field(default=None, alias="i")
     connection_info: str | None = Field(default=None, alias="c")
