@@ -59,6 +59,8 @@ class FileConfig(BaseSettings):
     recording_dir: Path = Path("./recoding")
     output_dir: Path = Path("./output")
     max_recording_age_day: int = 7
+    greeting_inbound_path: Path = Path("./output/transcode/greeting.wav")
+    greeting_outbound_path: Path = Path("./output/transcode/greeting.wav")
 
     model_config = config_factory("FILE_")
 

@@ -8,7 +8,7 @@ import time
 import uuid
 from pathlib import Path
 
-from sip_server.config import LoggingConfig, SIPConfig
+from sip_server.config import FileConfig, LoggingConfig, SIPConfig
 from sip_server.helper.sip_parsers import SipMessageParser
 from sip_server.helper.sip_session import SIPRTPSession
 from sip_server.helper.wav_handler import WavHandler
@@ -28,11 +28,12 @@ class RelayServer:
         sip_server_ip: str = "192.168.1.170",
     ):
         self.sip_config = SIPConfig()
-        self.host = self.sip_config.local_ip
-        self.recv_port = self.sip_config.local_port
-        self.transf_port = self.sip_config.transfer_port
-        self.local_ip = self.sip_config.local_ip
-        self.sip_server_ip = self.sip_config.server_ip
+        self.file_config = FileConfig()
+        self.host = self.sip_config.local_ip or host
+        self.recv_port = self.sip_config.local_port or recv_port
+        self.transf_port = self.sip_config.transfer_port or transf_port
+        self.local_ip = self.sip_config.local_ip or local_ip
+        self.sip_server_ip = self.sip_config.server_ip or sip_server_ip
 
         self.logger = logging.getLogger("SIPServer")
 
@@ -357,11 +358,14 @@ class RelayServer:
 
         session.start_rtp()
         try:
-            audio_path = "./output/transcode/greeting.wav"
-            wav_path = Path(audio_path)
+            wav_path = self.file_config.greeting_inbound_path
             if wav_path.exists():
-                self.logger.info(f"Playing audio file: {audio_path}")
+                self.logger.info(f"Playing audio file: {wav_path}")
                 session.start_audio(mode="wav", wav_path=wav_path)
+            else:
+                self.logger.warning(
+                    f"greeting file not found, skipping: {wav_path}"
+                )
             self.logger.info(f"> Started sending audio for call {call_id}")
 
         except Exception as e:
@@ -438,11 +442,14 @@ class RelayServer:
 
         session.start_rtp()
         try:
-            audio_path = "./output/transcode/greeting.wav"
-            wav_path = Path(audio_path)
+            wav_path = self.file_config.greeting_outbound_path
             if wav_path.exists():
-                self.logger.info(f"Playing audio file: {audio_path}")
+                self.logger.info(f"Playing audio file: {wav_path}")
                 session.start_audio(mode="wav", wav_path=wav_path)
+            else:
+                self.logger.warning(
+                    f"greeting file not found, skipping: {wav_path}"
+                )
 
             self.logger.info(f"> Started sending audio for call {call_id}")
 
